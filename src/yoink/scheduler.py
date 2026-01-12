@@ -2,11 +2,15 @@
 
 import asyncio
 from collections import deque
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import urlparse
+
 import structlog
 
 from yoink.filters import CombinedFilter
+
+if TYPE_CHECKING:
+    from yoink.robots import RobotsChecker
 
 logger = structlog.get_logger()
 
@@ -19,13 +23,16 @@ class Scheduler:
         max_depth: int = 1,
         follow_external: bool = False,
         url_filter: Optional[CombinedFilter] = None,
+        robots_checker: Optional["RobotsChecker"] = None,
     ):
         self.max_depth = max_depth
         self.follow_external = follow_external
         self.url_filter = url_filter
+        self.robots_checker = robots_checker
         self.queue: deque[tuple[str, int]] = deque()  # (url, depth)
         self.visited: set[str] = set()
         self.filtered: set[str] = set()  # Track filtered URLs
+        self.robots_blocked: set[str] = set()  # Track URLs blocked by robots.txt
         self.start_domain: Optional[str] = None
         self._lock = asyncio.Lock()
 
@@ -60,7 +67,18 @@ class Scheduler:
                 self.filtered.add(url)
                 return
 
+            # Check robots.txt (must be done outside lock for async)
+            # We'll mark as visited first to prevent duplicates
             self.visited.add(url)
+
+        # Check robots.txt outside the lock (it's an async operation)
+        if self.robots_checker:
+            if not await self.robots_checker.is_allowed(url):
+                self.robots_blocked.add(url)
+                logger.debug("url_blocked_robots", url=url)
+                return
+
+        async with self._lock:
             self.queue.append((url, depth))
             logger.debug("url_queued", url=url, depth=depth, queue_size=len(self.queue))
 
@@ -85,6 +103,11 @@ class Scheduler:
         """Get count of filtered URLs."""
         async with self._lock:
             return len(self.filtered)
+
+    async def robots_blocked_count(self) -> int:
+        """Get count of URLs blocked by robots.txt."""
+        async with self._lock:
+            return len(self.robots_blocked)
 
     def is_empty(self) -> bool:
         """Check if queue is empty."""

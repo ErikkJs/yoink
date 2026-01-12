@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "yoink"
-version = "0.3.0"
+version = "0.1.0"
 description = "YOINK - The public data crawler. Because it's public."
 authors = ["csgod"]
 readme = "README.md"
@@ -31,6 +31,7 @@ tqdm = "^4.66"
 aiofiles = "^23.2"
 pyarrow = {version = "^15.0", optional = true}
 aioboto3 = {version = "^13.0", optional = true}
+playwright = {version = "^1.40", optional = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
@@ -43,6 +44,8 @@ mypy = "^1.9"
 [tool.poetry.extras]
 parquet = ["pyarrow"]
 s3 = ["aioboto3"]
+browser = ["playwright"]
+all = ["pyarrow", "aioboto3", "playwright"]
 
 [tool.poetry.scripts]
 yoink = "yoink.cli:main"

@@ -1,9 +1,15 @@
 """HTTP fetcher with async support."""
 
 import asyncio
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+from urllib.parse import urlparse
+
 import aiohttp
 import structlog
+
+if TYPE_CHECKING:
+    from yoink.rate_limiter import RateLimiter
+    from yoink.robots import RobotsChecker
 
 logger = structlog.get_logger()
 
@@ -16,10 +22,14 @@ class Fetcher:
         user_agent: str = "yoink/0.1.0",
         timeout: int = 30,
         max_retries: int = 3,
+        rate_limiter: Optional["RateLimiter"] = None,
+        robots_checker: Optional["RobotsChecker"] = None,
     ):
         self.user_agent = user_agent
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self.max_retries = max_retries
+        self.rate_limiter = rate_limiter
+        self.robots_checker = robots_checker
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
@@ -50,6 +60,14 @@ class Fetcher:
         """
         if not self._session:
             raise RuntimeError("Fetcher must be used as async context manager")
+
+        # Apply rate limiting if configured
+        if self.rate_limiter:
+            domain = urlparse(url).netloc
+            crawl_delay = None
+            if self.robots_checker:
+                crawl_delay = await self.robots_checker.get_crawl_delay(domain)
+            await self.rate_limiter.acquire(domain, crawl_delay)
 
         for attempt in range(self.max_retries):
             try:

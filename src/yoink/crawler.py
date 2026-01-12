@@ -2,16 +2,26 @@
 
 import asyncio
 from typing import Optional
-from tqdm.asyncio import tqdm
-import structlog
 
-from yoink.fetcher import Fetcher
-from yoink.parser import Parser
-from yoink.scheduler import Scheduler
-from yoink.extractor import Extractor
-from yoink.models import Page, CrawlConfig
-from yoink.filters import CombinedFilter
+import structlog
+from tqdm.asyncio import tqdm
+
+from typing import Union
+
 from yoink.checkpoint import CheckpointManager
+from yoink.extractor import Extractor
+from yoink.fetcher import Fetcher
+from yoink.fetcher_factory import create_fetcher
+from yoink.filters import CombinedFilter
+from yoink.models import CrawlConfig, Page
+from yoink.parser import Parser
+from yoink.playwright_fetcher import PlaywrightFetcher
+from yoink.rate_limiter import RateLimiter
+from yoink.robots import RobotsChecker
+from yoink.scheduler import Scheduler
+
+# Type alias for both fetcher types
+FetcherType = Union[Fetcher, PlaywrightFetcher]
 
 logger = structlog.get_logger()
 
@@ -36,11 +46,29 @@ class Crawler:
         self.config = config or CrawlConfig()
         self.parser = Parser()
         self.extractor = Extractor()
+
+        # Create rate limiter
+        self.rate_limiter = RateLimiter(
+            requests_per_second=self.config.requests_per_second,
+            min_delay=self.config.request_delay,
+        )
+
+        # Create robots checker if enabled
+        self.robots_checker: Optional[RobotsChecker] = None
+        if self.config.respect_robots:
+            self.robots_checker = RobotsChecker(
+                user_agent=self.config.user_agent,
+                respect_robots=True,
+            )
+
+        # Create scheduler with robots checker
         self.scheduler = Scheduler(
             max_depth=self.config.max_depth,
             follow_external=self.config.follow_external,
             url_filter=url_filter,
+            robots_checker=self.robots_checker,
         )
+
         self.pages: list[Page] = []
         self.checkpoint_manager = checkpoint_manager
 
@@ -63,22 +91,29 @@ class Crawler:
             resume=resume,
         )
 
-        # Resume from checkpoint if requested
-        if resume and self.checkpoint_manager:
-            await self._resume_from_checkpoint(start_url)
-        else:
-            # Write initial metadata if checkpointing enabled
-            if self.checkpoint_manager:
-                await self.checkpoint_manager.write_metadata(start_url, self.config)
+        # Create fetcher context with rate limiting
+        fetcher = create_fetcher(
+            self.config,
+            rate_limiter=self.rate_limiter,
+            robots_checker=self.robots_checker,
+        )
+        async with fetcher:
+            # Set fetcher for robots checker BEFORE adding URLs
+            # (robots.txt needs to be fetched to check if URL is allowed)
+            if self.robots_checker:
+                self.robots_checker.set_fetcher(fetcher)
 
-            # Initialize queue with start URL
-            await self.scheduler.add(start_url, depth=0)
+            # Resume from checkpoint if requested
+            if resume and self.checkpoint_manager:
+                await self._resume_from_checkpoint(start_url)
+            else:
+                # Write initial metadata if checkpointing enabled
+                if self.checkpoint_manager:
+                    await self.checkpoint_manager.write_metadata(start_url, self.config)
 
-        # Create fetcher context
-        async with Fetcher(
-            user_agent=self.config.user_agent,
-            timeout=self.config.timeout,
-        ) as fetcher:
+                # Initialize queue with start URL
+                await self.scheduler.add(start_url, depth=0)
+
             # Create worker tasks
             workers = [
                 asyncio.create_task(self._worker(fetcher, worker_id))
@@ -101,7 +136,7 @@ class Crawler:
 
         return self.pages
 
-    async def _worker(self, fetcher: Fetcher, worker_id: int):
+    async def _worker(self, fetcher: FetcherType, worker_id: int):
         """
         Worker coroutine that processes URLs from queue.
 
@@ -189,20 +224,26 @@ class Crawler:
         """
         logger.info("crawl_started", url=start_url, resume=resume)
 
-        # Resume from checkpoint if requested
-        if resume and self.checkpoint_manager:
-            await self._resume_from_checkpoint(start_url)
-        else:
-            # Write initial metadata if checkpointing enabled
-            if self.checkpoint_manager:
-                await self.checkpoint_manager.write_metadata(start_url, self.config)
+        fetcher = create_fetcher(
+            self.config,
+            rate_limiter=self.rate_limiter,
+            robots_checker=self.robots_checker,
+        )
+        async with fetcher:
+            # Set fetcher for robots checker BEFORE adding URLs
+            if self.robots_checker:
+                self.robots_checker.set_fetcher(fetcher)
 
-            await self.scheduler.add(start_url, depth=0)
+            # Resume from checkpoint if requested
+            if resume and self.checkpoint_manager:
+                await self._resume_from_checkpoint(start_url)
+            else:
+                # Write initial metadata if checkpointing enabled
+                if self.checkpoint_manager:
+                    await self.checkpoint_manager.write_metadata(start_url, self.config)
 
-        async with Fetcher(
-            user_agent=self.config.user_agent,
-            timeout=self.config.timeout,
-        ) as fetcher:
+                await self.scheduler.add(start_url, depth=0)
+
             with tqdm(
                 total=self.config.max_pages,
                 desc="Yoinking pages",
@@ -223,7 +264,7 @@ class Crawler:
         logger.info("crawl_completed", pages=len(self.pages))
         return self.pages
 
-    async def _worker_with_progress(self, fetcher: Fetcher, worker_id: int, pbar):
+    async def _worker_with_progress(self, fetcher: FetcherType, worker_id: int, pbar):
         """Worker with progress bar updates."""
         while True:
             if len(self.pages) >= self.config.max_pages:

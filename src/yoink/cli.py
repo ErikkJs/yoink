@@ -115,6 +115,53 @@ def main():
     is_flag=True,
     help="Resume from checkpoint file",
 )
+@click.option(
+    "--rate-limit",
+    "-r",
+    type=float,
+    default=2.0,
+    help="Maximum requests per second per domain (default: 2.0)",
+)
+@click.option(
+    "--request-delay",
+    type=float,
+    default=0.0,
+    help="Minimum delay between requests in seconds (default: 0)",
+)
+@click.option(
+    "--no-robots",
+    is_flag=True,
+    help="Ignore robots.txt (not recommended)",
+)
+@click.option(
+    "--render-js",
+    "--browser",
+    is_flag=True,
+    help="Enable JavaScript rendering (requires playwright)",
+)
+@click.option(
+    "--wait-for",
+    type=click.Choice(["load", "domcontentloaded", "networkidle", "commit"]),
+    default="networkidle",
+    help="Page load wait strategy (default: networkidle)",
+)
+@click.option(
+    "--wait-selector",
+    type=str,
+    default=None,
+    help="CSS selector to wait for after page load",
+)
+@click.option(
+    "--browser-type",
+    type=click.Choice(["chromium", "firefox", "webkit"]),
+    default="chromium",
+    help="Browser engine to use (default: chromium)",
+)
+@click.option(
+    "--no-headless",
+    is_flag=True,
+    help="Run browser with visible UI (for debugging)",
+)
 def crawl(
     url: str,
     depth: int,
@@ -131,6 +178,14 @@ def crawl(
     checkpoint: str,
     checkpoint_interval: int,
     resume: bool,
+    rate_limit: float,
+    request_delay: float,
+    no_robots: bool,
+    render_js: bool,
+    wait_for: str,
+    wait_selector: str,
+    browser_type: str,
+    no_headless: bool,
 ):
     """
     Yoink a website starting from URL.
@@ -154,6 +209,9 @@ def crawl(
 
     click.echo(f"Yoinking {url}...")
     click.echo(f"Max depth: {depth}, Max pages: {max_pages}, Concurrency: {concurrency}")
+    click.echo(f"Rate limit: {rate_limit} req/s, Robots.txt: {'disabled' if no_robots else 'enabled'}")
+    if render_js:
+        click.echo(f"JavaScript rendering: enabled ({browser_type}, wait: {wait_for})")
 
     if checkpoint:
         if resume:
@@ -183,6 +241,9 @@ def crawl(
         if skip_exts:
             click.echo(f"Skip extensions: {', '.join(skip_exts)}")
 
+    # Import WaitStrategy for JS rendering
+    from yoink.models import WaitStrategy
+
     # Create config
     config = CrawlConfig(
         max_depth=depth,
@@ -191,6 +252,14 @@ def crawl(
         follow_external=follow_external,
         save_html=save_html,
         user_agent=user_agent,
+        respect_robots=not no_robots,
+        requests_per_second=rate_limit,
+        request_delay=request_delay,
+        render_js=render_js,
+        headless=not no_headless,
+        wait_strategy=WaitStrategy(wait_for),
+        wait_selector=wait_selector,
+        browser_type=browser_type,
     )
 
     # Create checkpoint manager if specified
