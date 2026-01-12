@@ -4,7 +4,7 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
-![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-134%20passing-brightgreen.svg)
 
 **YOINK** is a fast, async web crawler built for extracting clean, AI-ready data from public websites. Simple to use, respectful of servers, and outputs data in formats ready for machine learning pipelines.
 
@@ -17,6 +17,9 @@
 - **Checkpoint/Resume** - Resumable crawls with local or S3 storage
 - **Stats analysis** - Comprehensive crawl statistics and metrics
 - **Cloud-ready** - S3 backend support for Lambda/cloud deployments
+- **Rate limiting** - Per-domain token bucket with burst support and crawl-delay
+- **robots.txt compliance** - Full parsing, caching, and pattern matching
+- **JavaScript rendering** - Playwright-based browser for JS-heavy sites (optional)
 
 ## Installation
 
@@ -35,6 +38,14 @@ pip install -e .
 pip install -e ".[s3]"
 # or with poetry
 poetry install -E s3
+
+# Install with browser/JavaScript rendering support
+pip install -e ".[browser]"
+# or with poetry
+poetry install -E browser
+
+# Install everything
+pip install -e ".[all]"
 ```
 
 ## Quick Start
@@ -79,6 +90,28 @@ yoink crawl https://example.com --checkpoint crawl.jsonl --resume
 # Checkpoint to S3 for cloud deployments
 # Note: Requires AWS credentials configured (see below)
 yoink crawl https://example.com --checkpoint s3://my-bucket/crawl.jsonl
+
+# Rate limiting - be nice to servers
+yoink crawl https://example.com --rate-limit 1.0  # 1 request per second
+yoink crawl https://example.com --request-delay 0.5  # 500ms between requests
+
+# Ignore robots.txt (use responsibly!)
+yoink crawl https://example.com --no-robots
+
+# JavaScript rendering for dynamic sites (requires browser extra)
+yoink crawl https://spa-site.com --render-js
+yoink crawl https://spa-site.com --render-js --wait-for networkidle
+yoink crawl https://spa-site.com --render-js --wait-selector ".content-loaded"
+
+# Full-featured crawl
+yoink crawl https://docs.example.com \
+  --depth 3 \
+  --max-pages 500 \
+  --rate-limit 2.0 \
+  --include "*/api/*" \
+  --render-js \
+  --wait-for domcontentloaded \
+  -o api_docs.jsonl
 ```
 
 **S3 Checkpointing Setup:**
@@ -295,6 +328,22 @@ Options:
   --checkpoint TEXT           Enable checkpointing (local file or s3://bucket/key)
   --checkpoint-interval INT   Pages between flushes (default: 10)
   --resume                    Resume from checkpoint file
+
+  Rate Limiting:
+  -r, --rate-limit FLOAT      Requests per second per domain (default: 2.0)
+  --request-delay FLOAT       Minimum delay between requests in seconds
+
+  Robots.txt:
+  --no-robots                 Disable robots.txt checking (default: enabled)
+
+  JavaScript Rendering (requires browser extra):
+  --render-js, --browser      Enable JavaScript rendering via Playwright
+  --wait-for [load|domcontentloaded|networkidle|commit]
+                              Page load wait strategy (default: load)
+  --wait-selector TEXT        CSS selector to wait for before considering page loaded
+  --browser-type [chromium|firefox|webkit]
+                              Browser engine to use (default: chromium)
+  --no-headless               Run browser with visible UI (for debugging)
 ```
 
 ### Stats Command
@@ -359,17 +408,32 @@ Simple text format with extracted content.
 ### Via Python
 
 ```python
-from yoink.models import CrawlConfig
+from yoink.models import CrawlConfig, WaitStrategy
 
 config = CrawlConfig(
+    # Core settings
     max_depth=2,              # How deep to crawl
     max_pages=500,            # Max pages to fetch
     max_concurrency=15,       # Parallel requests
-    respect_robots=True,      # Honor robots.txt
     follow_external=False,    # Stay on same domain
     extract_text=True,        # Extract clean text
     save_html=False,          # Don't save raw HTML
     timeout=30,               # Request timeout (seconds)
+
+    # Rate limiting
+    requests_per_second=2.0,  # Max requests per second per domain
+    request_delay=0.0,        # Minimum delay between requests
+
+    # Robots.txt
+    respect_robots=True,      # Honor robots.txt (default: True)
+
+    # JavaScript rendering (requires browser extra)
+    render_js=False,          # Enable Playwright browser rendering
+    headless=True,            # Run browser headlessly
+    wait_strategy=WaitStrategy.LOAD,  # Wait strategy for page load
+    wait_selector=None,       # CSS selector to wait for
+    browser_type="chromium",  # Browser engine: chromium, firefox, webkit
+    browser_pool_size=3,      # Number of browser contexts to pool
 )
 ```
 
@@ -401,21 +465,44 @@ config = CrawlConfig(
 - **Multiple Outputs** - Human-readable, JSON, CSV export
 - **Domain Analysis** - Top domains, subdomain tracking
 
+### Rate Limiting
+- **Token Bucket Algorithm** - Smooth traffic shaping with burst support
+- **Per-Domain Isolation** - Independent limits for each domain
+- **Crawl-Delay Support** - Automatically respects robots.txt crawl-delay
+- **Configurable Rates** - Set requests per second and minimum delays
+
+### Robots.txt Compliance
+- **Full Parsing** - Supports Allow, Disallow, Crawl-delay, Sitemap directives
+- **Pattern Matching** - Wildcards (*) and end anchors ($) supported
+- **Caching** - Per-domain caching with configurable TTL (1 hour default)
+- **User-Agent Matching** - Exact, partial, and wildcard fallback matching
+
+### JavaScript Rendering (Optional)
+- **Playwright Integration** - Real browser rendering for JS-heavy sites
+- **Multiple Browsers** - Chromium, Firefox, or WebKit
+- **Wait Strategies** - load, domcontentloaded, networkidle, or custom selectors
+- **Context Pooling** - Efficient browser context reuse
+- **Graceful Fallback** - Falls back to HTTP if Playwright unavailable
+
 ## Architecture
 
 YOINK is designed to be simple and maintainable:
 
 - **Fetcher**: Async HTTP client with retry logic (aiohttp)
+- **PlaywrightFetcher**: Browser-based fetcher for JavaScript rendering (optional)
+- **FetcherFactory**: Auto-selects appropriate fetcher based on config
 - **Parser**: HTML parsing and link extraction (BeautifulSoup + lxml)
 - **Extractor**: AI-grade text extraction (trafilatura)
 - **Scheduler**: URL queue with deduplication and filtering
+- **RateLimiter**: Per-domain token bucket rate limiting
+- **RobotsChecker**: robots.txt parsing and compliance
 - **Filters**: Pattern matching for URL targeting
 - **Writers**: Output to various formats
 - **Stats**: Comprehensive analysis engine
 - **Checkpoint**: State persistence with pluggable storage backends
 - **Storage**: Cloud-agnostic abstraction (Local, S3)
 
-Total custom code: ~2,800 lines. The rest is battle-tested libraries.
+Total custom code: ~5,400 lines. The rest is battle-tested libraries.
 
 ## Examples
 
@@ -457,7 +544,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-**Test Coverage**: 68 passing tests
+**Test Coverage**: 134 passing tests
 
 ## Acknowledgments
 
@@ -466,6 +553,7 @@ Built with:
 - [trafilatura](https://github.com/adbar/trafilatura) - Text extraction
 - [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) - HTML parsing
 - [Click](https://click.palletsprojects.com/) - CLI framework
+- [Playwright](https://playwright.dev/) - Browser automation (optional)
 
 ---
 
