@@ -7,7 +7,7 @@ category: Examples
 Trafilatura is great for general-purpose article extraction. But sometimes you need to extract structured data — product specs, schema.org JSON-LD, GitHub READMEs — and want to bypass or augment the default extractor.
 
 <Callout variant="info" title="The corresponding file in the repo">
-[`examples/custom_extraction.py`](https://github.com/ErikkJs/yoink/blob/main/examples/custom_extraction.py) demonstrates lightweight post-processing — link-counting by domain, keyword search, metadata inspection. The recipes on this page go further (subclassing `Extractor`, parsing JSON-LD, handling PDFs).
+[`examples/custom_extraction.py`](https://github.com/ErikkJs/yoink/blob/master/examples/custom_extraction.py) demonstrates lightweight post-processing — link-counting by domain, keyword search, metadata inspection. The recipes on this page go further (subclassing `Extractor`, parsing JSON-LD, handling PDFs).
 </Callout>
 
 ## Approach 1: post-process `Page.html`
@@ -138,5 +138,5 @@ yoink optimizes for HTML and clean text. For weird formats — PDFs, video trans
 
 ## See also
 
-- The default `Extractor`: <a href="https://github.com/ErikkJs/yoink/blob/main/src/yoink/extractor.py">src/yoink/extractor.py</a>.
-- The default `Parser`: <a href="https://github.com/ErikkJs/yoink/blob/main/src/yoink/parser.py">src/yoink/parser.py</a>.
+- The default `Extractor`: <a href="https://github.com/ErikkJs/yoink/blob/master/src/yoink/extractor.py">src/yoink/extractor.py</a>.
+- The default `Parser`: <a href="https://github.com/ErikkJs/yoink/blob/master/src/yoink/parser.py">src/yoink/parser.py</a>.

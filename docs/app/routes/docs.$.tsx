@@ -74,7 +74,7 @@ export default function DocsPage({ loaderData }: Route.ComponentProps) {
             <span>docs/{currentSlug}.mdx</span>
             <span className="text-border-strong">·</span>
             <a
-              href={`https://github.com/ErikkJs/yoink/edit/main/docs/app/content/docs/${currentSlug}.mdx`}
+              href={`https://github.com/ErikkJs/yoink/edit/master/docs/app/content/docs/${currentSlug}.mdx`}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-lime transition-colors inline-flex items-center gap-1"
