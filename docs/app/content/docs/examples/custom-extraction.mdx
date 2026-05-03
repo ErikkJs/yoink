@@ -1,0 +1,142 @@
+---
+title: Custom extraction
+description: Replace or augment the default text extractor with domain-specific logic.
+category: Examples
+---
+
+Trafilatura is great for general-purpose article extraction. But sometimes you need to extract structured data — product specs, schema.org JSON-LD, GitHub READMEs — and want to bypass or augment the default extractor.
+
+<Callout variant="info" title="The corresponding file in the repo">
+[`examples/custom_extraction.py`](https://github.com/ErikkJs/yoink/blob/main/examples/custom_extraction.py) demonstrates lightweight post-processing — link-counting by domain, keyword search, metadata inspection. The recipes on this page go further (subclassing `Extractor`, parsing JSON-LD, handling PDFs).
+</Callout>
+
+## Approach 1: post-process `Page.html`
+
+If you set `save_html=True`, every page record carries the raw HTML. You can run any extractor over it after the crawl.
+
+```python
+import asyncio
+import json
+from bs4 import BeautifulSoup
+from yoink import Crawler, CrawlConfig
+
+async def main():
+    config = CrawlConfig(
+        max_depth=2,
+        save_html=True,   # we need raw HTML
+        extract_text=False,   # skip trafilatura
+    )
+    crawler = Crawler(config=config)
+    pages = await crawler.crawl("https://example.com/products")
+
+    products = []
+    for page in pages:
+        if not page.html:
+            continue
+        soup = BeautifulSoup(page.html, "lxml")
+
+        # Pull schema.org JSON-LD
+        for tag in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(tag.string or "")
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict) and data.get("@type") == "Product":
+                products.append({
+                    "url": page.url,
+                    "name": data.get("name"),
+                    "price": data.get("offers", {}).get("price"),
+                    "currency": data.get("offers", {}).get("priceCurrency"),
+                })
+
+    return products
+
+products = asyncio.run(main())
+print(f"Extracted {len(products)} products")
+```
+
+## Approach 2: subclass the `Extractor`
+
+For invasive changes, replace the extractor entirely. The `Crawler.__init__` builds its own `Extractor`, so the cleanest path is a small subclass of `Crawler`:
+
+```python
+from yoink import Crawler, CrawlConfig
+from yoink.extractor import Extractor
+
+class MarkdownExtractor(Extractor):
+    def extract(self, html: str, url: str) -> str:
+        # Replace the trafilatura call with markdownify, html2text,
+        # readability-lxml, or your own logic.
+        from markdownify import markdownify
+        return markdownify(html, heading_style="ATX")
+
+class MarkdownCrawler(Crawler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.extractor = MarkdownExtractor()
+
+# Use it like any Crawler
+crawler = MarkdownCrawler(config=CrawlConfig())
+pages = await crawler.crawl("https://docs.example.com")
+# page.text is now markdown
+```
+
+## Approach 3: extract during the crawl with metadata
+
+The default `Parser` already extracts standard meta tags into `Page.metadata`. If you need extra fields, parse them in a wrapper:
+
+```python
+from yoink import Crawler, CrawlConfig
+from bs4 import BeautifulSoup
+
+class EnrichedCrawler(Crawler):
+    async def _worker(self, fetcher, worker_id):
+        # Defer to the parent, then enrich each page after it's added
+        await super()._worker(fetcher, worker_id)
+
+# That works in principle, but the most pragmatic approach is to enrich AFTER:
+crawler = Crawler(config=CrawlConfig(save_html=True))
+pages = await crawler.crawl("https://docs.example.com")
+
+for page in pages:
+    if page.html:
+        soup = BeautifulSoup(page.html, "lxml")
+        # Pull custom metadata
+        published = soup.find("meta", attrs={"name": "article:published_time"})
+        if published:
+            page.metadata["published_at"] = published.get("content", "")
+```
+
+## Approach 4: PDF or other non-HTML content
+
+yoink doesn't ship a PDF extractor, but you can post-process easily:
+
+```python
+import asyncio
+import requests
+from io import BytesIO
+from pypdf import PdfReader
+
+async def main():
+    config = CrawlConfig(extract_text=False)  # we'll do our own
+    crawler = Crawler(config=config)
+    pages = await crawler.crawl("https://example.com/papers")
+
+    for page in pages:
+        if page.url.endswith(".pdf"):
+            # Re-fetch as binary (yoink fetched it as a string, which mangled bytes)
+            content = requests.get(page.url, timeout=30).content
+            reader = PdfReader(BytesIO(content))
+            page.text = "\n\n".join(p.extract_text() for p in reader.pages)
+
+asyncio.run(main())
+```
+
+<Callout variant="tip" title="The grain of yoink">
+yoink optimizes for HTML and clean text. For weird formats — PDFs, video transcripts, structured data feeds — pull just the URLs you need with yoink (use [URL filtering](/docs/concepts/url-filtering)) and process them with format-specific tooling afterwards.
+</Callout>
+
+## See also
+
+- The default `Extractor`: <a href="https://github.com/ErikkJs/yoink/blob/main/src/yoink/extractor.py">src/yoink/extractor.py</a>.
+- The default `Parser`: <a href="https://github.com/ErikkJs/yoink/blob/main/src/yoink/parser.py">src/yoink/parser.py</a>.

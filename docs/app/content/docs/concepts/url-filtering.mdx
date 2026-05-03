@@ -1,0 +1,152 @@
+---
+title: URL filtering
+description: Include patterns, exclude patterns, file-extension filters, and domain filters — combine for precise targeting.
+category: Concepts
+---
+
+Most crawls don't want every URL. URL filters tell yoink which pages to follow and which to skip *before* they hit the queue.
+
+## The filter pipeline
+
+For each candidate URL, `CombinedFilter` checks filters in this order. The first one that says "no" wins:
+
+<URLFilterPipeline />
+
+`DomainFilter` runs first because it's a fast hostname check; if you've explicitly allowlisted a domain set, everything else is irrelevant for URLs outside it. Inside `URLFilter`, the order is extension → include → exclude — the cheap path-suffix check before any pattern matching.
+
+## CLI usage
+
+```bash
+yoink crawl https://example.com \
+  --include "*/blog/*" \
+  --include "*/docs/*" \
+  --exclude "*/private/*" \
+  --skip-extensions pdf,zip,exe
+```
+
+- `--include` and `--exclude` are repeatable.
+- `--skip-extensions` is comma-separated.
+
+## Python usage
+
+```python
+from yoink import Crawler, CrawlConfig
+from yoink.filters import CombinedFilter
+
+url_filter = CombinedFilter.from_config(
+    include_patterns=["*/blog/*", "*/docs/*"],
+    exclude_patterns=["*/private/*"],
+    skip_extensions=["pdf", "zip", "exe"],
+    allowed_domains=["example.com", "blog.example.com"],
+)
+
+crawler = Crawler(config=CrawlConfig(), url_filter=url_filter)
+pages = await crawler.crawl("https://example.com")
+```
+
+## Pattern syntax
+
+yoink auto-detects the kind of pattern based on its shape:
+
+| Pattern shape               | Treated as       | Example                               |
+| --------------------------- | ---------------- | ------------------------------------- |
+| Contains `*` or `?`         | Glob             | `*/blog/*`, `*.html`                  |
+| Starts `^` / ends `$` / has `[` | Regex          | `^https://example\.com/v\d+/.*$`      |
+| Anything else               | Substring match  | `/api/`                               |
+
+### Glob examples
+
+```python
+# All blog posts
+"*/blog/*"
+
+# Anything under /docs/, any depth
+"*/docs/*"
+
+# Specific URL with placeholder
+"https://example.com/posts/?"
+```
+
+### Regex examples
+
+```python
+# Versioned API URLs
+r"^https://api\.example\.com/v\d+/.*$"
+
+# Posts from 2024 or later
+r"/posts/(202[4-9]|20[3-9]\d)/.*"
+```
+
+### Substring examples
+
+```python
+"/api/"      # any URL containing /api/
+"draft"      # any URL containing 'draft'
+```
+
+<Callout variant="tip" title="Substring is the simplest, but watch your edges">
+`"/api"` matches `/api/users` *and* `/apiserver/foo`. Use globs (`"*/api/*"`) when you mean a path segment.
+</Callout>
+
+## Extension filtering
+
+Inside `URLFilter`, `skip_extensions` is checked before include/exclude patterns because it's cheap. It matches the lowercased URL path:
+
+```python
+skip_extensions=["pdf", "zip", "exe", "jpg", "png"]
+```
+
+You don't need the leading dot — yoink strips it. `pdf`, `.pdf`, and `PDF` all work.
+
+## Domain filtering
+
+By default, yoink stays on the start URL's domain. With `--follow-external`, it'll follow links anywhere. To allow specific external domains only:
+
+```python
+from yoink.filters import DomainFilter, CombinedFilter
+
+domain_filter = DomainFilter(allowed_domains=["example.com", "docs.example.com"])
+url_filter = CombinedFilter(domain_filter=domain_filter)
+
+crawler = Crawler(
+    config=CrawlConfig(follow_external=True),
+    url_filter=url_filter,
+)
+```
+
+Domain matching honors subdomains: `allowed_domains=["example.com"]` matches `example.com`, `www.example.com`, and `blog.example.com` — but not `evil-example.com`.
+
+## Combining filters
+
+Use `CombinedFilter.from_config(...)` for the common case:
+
+```python
+from yoink.filters import CombinedFilter
+
+url_filter = CombinedFilter.from_config(
+    include_patterns=["*/api/*"],
+    exclude_patterns=["*/api/internal/*"],
+    skip_extensions=["pdf"],
+    allowed_domains=["api.example.com"],
+)
+```
+
+Or compose lower-level filters explicitly:
+
+```python
+from yoink.filters import URLFilter, DomainFilter, CombinedFilter
+
+url_filter = CombinedFilter(
+    url_filter=URLFilter(
+        include_patterns=["*/api/*"],
+        exclude_patterns=["*/internal/*"],
+        skip_extensions=["pdf"],
+    ),
+    domain_filter=DomainFilter(allowed_domains=["api.example.com"]),
+)
+```
+
+## See also
+
+- [Filters API reference](/docs/api/filters).
+- The `Filters` source: <a href="https://github.com/ErikkJs/yoink/blob/main/src/yoink/filters.py">src/yoink/filters.py</a>.

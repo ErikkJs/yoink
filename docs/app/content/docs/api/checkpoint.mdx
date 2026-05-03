@@ -1,0 +1,132 @@
+---
+title: CheckpointManager
+description: Persist crawl progress to disk or S3 — automatic resume, configurable flush interval.
+category: Python API
+---
+
+`CheckpointManager` writes pages and crawl state to a [`CheckpointStorage`](/docs/api/storage) backend. Pass one to `Crawler` to make any crawl resumable.
+
+## Import
+
+```python
+from yoink import CheckpointManager
+```
+
+## Constructing
+
+The recommended path is `from_uri()`, which picks the right storage backend:
+
+```python
+# Local file
+checkpoint = CheckpointManager.from_uri("./crawl.jsonl")
+
+# S3 (requires [s3] extra)
+checkpoint = CheckpointManager.from_uri("s3://my-bucket/crawl.jsonl")
+
+# With custom flush cadence
+checkpoint = CheckpointManager.from_uri(
+    "./crawl.jsonl",
+    flush_interval=50,
+)
+```
+
+For full control, build with an explicit storage backend:
+
+```python
+from yoink import CheckpointManager
+from yoink.storage import LocalFileStorage, S3Storage
+
+storage = S3Storage("s3://my-bucket/crawl.jsonl")
+checkpoint = CheckpointManager(storage=storage, flush_interval=50)
+```
+
+## API surface
+
+<PropTable rows={[
+  { name: "from_uri(uri, flush_interval=10)", type: "classmethod", description: "Build a CheckpointManager from a path or s3:// URI." },
+  { name: "write_metadata(start_url, config)", type: "async", description: "Write the run header. Called once by Crawler." },
+  { name: "write_page(page)", type: "async", description: "Append one page record." },
+  { name: "write_state(visited, queue, filtered)", type: "async", description: "Snapshot the scheduler state for resume." },
+  { name: "load()", type: "async", description: "Read the checkpoint and return { metadata, pages, state }." },
+  { name: "close()", type: "async", description: "Flush the storage backend and release resources. Called by Crawler at end of run." },
+]} />
+
+<Callout variant="info" title="Need to flush mid-run?">
+There's no `CheckpointManager.flush()` method. If you need to force a flush from outside the crawler (e.g., before checking the file from another process), call `await manager.storage.flush()` directly.
+</Callout>
+
+## Examples
+
+### Resumable local crawl
+
+```python
+import asyncio
+from yoink import Crawler, CrawlConfig, CheckpointManager
+
+async def main():
+    config = CrawlConfig(max_depth=3, max_pages=10_000)
+    checkpoint = CheckpointManager.from_uri("./crawl.jsonl")
+
+    crawler = Crawler(config=config, checkpoint_manager=checkpoint)
+
+    # Pick up where we left off if the file exists
+    pages = await crawler.crawl("https://example.com", resume=True)
+    print(f"Total pages: {len(pages)}")
+
+asyncio.run(main())
+```
+
+### Inspecting a checkpoint
+
+```python
+import asyncio
+from yoink import CheckpointManager
+
+async def main():
+    checkpoint = CheckpointManager.from_uri("./crawl.jsonl")
+    data = await checkpoint.load()
+
+    print(f"Started: {data['metadata']['started_at']}")
+    print(f"Start URL: {data['metadata']['start_url']}")
+    print(f"Pages saved: {len(data['pages'])}")
+    if state := data.get("state"):
+        print(f"Visited: {len(state['visited'])}")
+        print(f"Queue:   {len(state['queue'])}")
+        print(f"Filtered:{len(state['filtered'])}")
+
+asyncio.run(main())
+```
+
+### Choosing a flush interval
+
+```python
+# Aggressive flushing — every page gets persisted state too
+checkpoint = CheckpointManager.from_uri("./crawl.jsonl", flush_interval=1)
+
+# Moderate (default) — state every 10 pages
+checkpoint = CheckpointManager.from_uri("./crawl.jsonl", flush_interval=10)
+
+# S3 — minimize API calls for cost
+checkpoint = CheckpointManager.from_uri("s3://bucket/crawl.jsonl", flush_interval=100)
+```
+
+For S3 the trade-off is real: every flush is a `put_object` call. Don't go below 50 unless you have specific reasons.
+
+## File format
+
+A checkpoint is a JSONL file with `type` discriminators:
+
+```jsonl
+{"type": "metadata", "start_url": "...", "config": {...}, "started_at": "..."}
+{"type": "page", "url": "...", "title": "...", ...}
+{"type": "page", "url": "...", "title": "...", ...}
+{"type": "state", "visited": [...], "queue": [...], "filtered": [...]}
+```
+
+This is intentionally readable and `grep`-friendly. You can hand-edit a checkpoint to remove a problematic page or trim the queue.
+
+## See also
+
+- [Checkpointing concepts](/docs/concepts/checkpointing).
+- [`CheckpointStorage`](/docs/api/storage) — the storage backend interface.
+- [Lambda + S3 example](/docs/examples/lambda-s3).

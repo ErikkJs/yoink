@@ -1,0 +1,123 @@
+---
+title: robots.txt compliance
+description: How yoink parses, caches, and applies robots.txt directives — Allow, Disallow, Crawl-delay, Sitemap.
+category: Concepts
+---
+
+yoink respects [robots.txt](https://www.robotstxt.org/) by default. The `RobotsChecker` is consulted before every fetch, and disallowed URLs are filtered out before they ever hit the queue.
+
+## What's supported
+
+- ✅ `User-agent` matching — exact, partial substring, and `*` wildcard fallback.
+- ✅ `Disallow` rules with wildcard (`*`) and end-anchor (`$`) patterns.
+- ✅ `Allow` rules (longer/more-specific paths win).
+- ✅ `Crawl-delay` — narrows the rate limiter for that domain.
+- ✅ `Sitemap` directives — parsed and stored on each domain's `RobotsDirectives.sitemaps` list.
+- ✅ Per-domain caching with a 1-hour default TTL.
+
+## How it fits in
+
+<RobotsFlow />
+
+## Pattern matching
+
+yoink approximates [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309):
+
+- `*` matches any sequence of characters (greedy).
+- `$` at the end of a pattern anchors the match to the end of the URL path.
+- Rules are sorted by path length (longest first), and the first match wins. **Tie-breaks** between equal-length `Allow` and `Disallow` rules go to whichever appears first in the file (Python's stable sort), not strictly to `Allow` as the RFC prefers. Author your `Allow`/`Disallow` rules with that in mind, or rely on the longer/more-specific path winning.
+
+Examples:
+
+```text
+User-agent: *
+Disallow: /private/
+Disallow: /*.pdf$
+Allow: /private/public-page.html
+Crawl-delay: 2
+```
+
+| URL                              | Result   | Why                                       |
+| -------------------------------- | -------- | ----------------------------------------- |
+| `/about`                         | allowed  | No matching rule                          |
+| `/private/secrets`               | blocked  | `Disallow: /private/`                     |
+| `/private/public-page.html`      | allowed  | `Allow` is more specific than `Disallow`  |
+| `/docs/manual.pdf`               | blocked  | `Disallow: /*.pdf$`                       |
+| `/docs/manual.pdf?download=1`    | allowed  | The `$` anchor; query strings break the match |
+
+## User-agent matching
+
+yoink matches your configured `user_agent` against the `robots.txt` `User-agent` blocks in this order:
+
+1. **Exact match** (case-insensitive).
+2. **Partial match** — bidirectional substring (`a in b or b in a`). For example, `User-agent: yoink` matches the default UA `yoink/0.3.0 (+...)` because `"yoink"` is a substring of the UA.
+3. **Wildcard fallback** (`User-agent: *`).
+
+<Callout variant="info" title="Bidirectional partial matching">
+The substring check runs both directions, so a `robots.txt` block with `User-agent: yo` would also match `yoink/0.3.0`. If you publish or consume terse UAs, this can lead to surprising matches — use a distinctive UA string and you'll be fine.
+</Callout>
+
+## Caching
+
+`robots.txt` is fetched once per domain and cached for 1 hour. This keeps yoink polite for long crawls without re-fetching `robots.txt` for every URL.
+
+The cache is in-memory and per-`Crawler` instance — a fresh process or a new `Crawler()` will re-fetch.
+
+## Disabling robots.txt checks
+
+<Callout variant="warning" title="Use responsibly">
+You can disable robots.txt enforcement, but it's the website operator's primary signal that they don't want a crawler. If you opt out, you take on the responsibility of knowing why and being able to defend it.
+</Callout>
+
+```bash
+# CLI
+yoink crawl https://example.com --no-robots
+```
+
+```python
+# Python
+config = CrawlConfig(respect_robots=False)
+```
+
+When disabled, yoink doesn't fetch `robots.txt` at all and crawls freely subject only to your other config.
+
+## Inspecting the rules
+
+The cleanest way to inspect what `RobotsChecker` saw is to share the `Crawler`'s instance — it already has the `Fetcher` wired up. Here's a one-shot script that prints what it learned about each domain it visited:
+
+```python
+import asyncio
+from yoink import Crawler, CrawlConfig
+
+async def main():
+    crawler = Crawler(CrawlConfig(max_pages=20))
+    await crawler.crawl("https://example.com")
+
+    rc = crawler.robots_checker
+    if rc is None:
+        return  # respect_robots was disabled
+
+    for domain, cached in rc._cache.items():
+        for ua, directives in cached.directives.items():
+            print(f"[{domain}] User-agent: {ua}")
+            print(f"  rules: {len(directives.rules)}")
+            print(f"  crawl_delay: {directives.crawl_delay}")
+            print(f"  sitemaps: {directives.sitemaps}")
+
+asyncio.run(main())
+```
+
+For ad-hoc `is_allowed()` checks, use the public method (it's `async`):
+
+```python
+allowed = await crawler.robots_checker.is_allowed("https://example.com/private/")
+```
+
+<Callout variant="warning" title="Standalone use needs a fetcher">
+`RobotsChecker` needs a `Fetcher` to download `robots.txt` from the network. The `Crawler` wires this for you. If you want to use `RobotsChecker` outside a `Crawler`, you have to call `set_fetcher(my_fetcher)` with an open `Fetcher` (`async with Fetcher() as f: ...`) before `is_allowed()` will check anything — otherwise it returns `True` unconditionally.
+</Callout>
+
+## See also
+
+- [Rate limiting](/docs/concepts/rate-limiting) — how `Crawl-delay` interacts with your `requests_per_second`.
+- The `RobotsChecker` source: <a href="https://github.com/ErikkJs/yoink/blob/main/src/yoink/robots.py">src/yoink/robots.py</a>.

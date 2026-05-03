@@ -1,0 +1,125 @@
+---
+title: Filters
+description: URLFilter, DomainFilter, and CombinedFilter — pattern matching, extension filtering, domain allowlists.
+category: Python API
+---
+
+```python
+from yoink.filters import URLFilter, DomainFilter, CombinedFilter
+```
+
+## `URLFilter`
+
+Pattern-based URL filtering. Auto-detects glob, regex, or substring patterns.
+
+```python
+URLFilter(
+    include_patterns: list[str] | None = None,
+    exclude_patterns: list[str] | None = None,
+    skip_extensions: list[str] | None = None,
+)
+```
+
+<PropTable rows={[
+  { name: "include_patterns", type: "list[str] | None", description: "URL must match at least one to pass. Empty = no inclusion filter." },
+  { name: "exclude_patterns", type: "list[str] | None", description: "URL fails if it matches any. Empty = no exclusion filter." },
+  { name: "skip_extensions", type: "list[str] | None", description: "Path-suffix filter. Leading dots are stripped, case-insensitive." },
+]} />
+
+```python
+url_filter = URLFilter(
+    include_patterns=["*/blog/*", "*/docs/*"],
+    exclude_patterns=["*/private/*", r"^.*\?draft=1$"],
+    skip_extensions=["pdf", "zip", "exe"],
+)
+
+url_filter.should_crawl("https://example.com/blog/post-1")  # True
+url_filter.should_crawl("https://example.com/private/x")    # False
+url_filter.should_crawl("https://example.com/manual.pdf")   # False
+```
+
+## `DomainFilter`
+
+Domain allowlist with subdomain matching.
+
+```python
+DomainFilter(allowed_domains: list[str] | None = None)
+```
+
+```python
+domain_filter = DomainFilter(allowed_domains=["example.com"])
+
+domain_filter.should_crawl("https://example.com/page")     # True
+domain_filter.should_crawl("https://blog.example.com/x")   # True (subdomain)
+domain_filter.should_crawl("https://other.com/page")       # False
+domain_filter.should_crawl("https://evil-example.com/x")   # False
+```
+
+Subdomain matching: a URL passes if its hostname **is** an allowed domain or **ends with** `.{allowed_domain}`.
+
+## `CombinedFilter`
+
+Composes a `URLFilter` and a `DomainFilter`. This is what `Crawler` accepts.
+
+```python
+CombinedFilter(
+    url_filter: URLFilter | None = None,
+    domain_filter: DomainFilter | None = None,
+)
+```
+
+The most ergonomic constructor is `from_config()`:
+
+```python
+CombinedFilter.from_config(
+    include_patterns: list[str] | None = None,
+    exclude_patterns: list[str] | None = None,
+    skip_extensions: list[str] | None = None,
+    allowed_domains: list[str] | None = None,
+) -> CombinedFilter
+```
+
+```python
+url_filter = CombinedFilter.from_config(
+    include_patterns=["*/api/*"],
+    exclude_patterns=["*/internal/*"],
+    skip_extensions=["pdf"],
+    allowed_domains=["api.example.com"],
+)
+
+crawler = Crawler(config=CrawlConfig(), url_filter=url_filter)
+```
+
+## Pattern dispatch
+
+| Pattern shape                          | Matched as       |
+| -------------------------------------- | ---------------- |
+| Contains `*` or `?`                    | Glob (fnmatch)   |
+| Starts `^`, ends `$`, or contains `[`  | Regex (re.match) |
+| Anything else                          | Substring (`in`) |
+
+See [URL filtering](/docs/concepts/url-filtering) for examples.
+
+## Custom filters
+
+Anything implementing `should_crawl(url: str) -> bool` works as a filter. To plug it into the crawler, wrap it with a tiny adapter or use it directly:
+
+```python
+class WeekendOnlyFilter:
+    def should_crawl(self, url: str) -> bool:
+        from datetime import datetime
+        return datetime.utcnow().weekday() >= 5  # Sat/Sun
+
+# CombinedFilter accepts anything with a url_filter or domain_filter slot
+# that has .should_crawl, so subclassing is the cleanest path:
+class MyURLFilter(URLFilter):
+    def should_crawl(self, url: str) -> bool:
+        if "?utm" in url:
+            return False
+        return super().should_crawl(url)
+```
+
+## See also
+
+- [URL filtering concepts](/docs/concepts/url-filtering).
+- The `Filters` source: <a href="https://github.com/ErikkJs/yoink/blob/main/src/yoink/filters.py">src/yoink/filters.py</a>.

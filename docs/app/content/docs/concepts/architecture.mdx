@@ -1,0 +1,50 @@
+---
+title: Architecture
+description: How yoink's modules fit together — fetcher, parser, scheduler, rate limiter, robots checker, checkpoint, storage.
+category: Concepts
+---
+
+yoink is built as a small graph of single-purpose modules. Each one does one thing, and the `Crawler` is the conductor that wires them together.
+
+## The components
+
+| Module                | Responsibility                                                              |
+| --------------------- | --------------------------------------------------------------------------- |
+| `Crawler`             | Owns the worker pool, drives the crawl loop, persists results.              |
+| `Fetcher`             | Async HTTP client (aiohttp). Up to 3 attempts with exponential backoff on `ClientError`; immediate retry on `TimeoutError`; HTTP errors (4xx/5xx) returned as-is, not retried. |
+| `PlaywrightFetcher`   | Browser-based fetcher for JS-heavy sites.                                   |
+| `create_fetcher`      | Factory function in `fetcher_factory.py`. Returns `PlaywrightFetcher` when `render_js=True` (and Playwright is importable), `Fetcher` otherwise. Emits `UserWarning` and falls back to `Fetcher` if `render_js=True` but Playwright isn't installed. |
+| `Parser`              | HTML → title, links, metadata (BeautifulSoup + lxml).                       |
+| `Extractor`           | HTML → clean text via trafilatura.                                          |
+| `Scheduler`           | URL queue, depth tracking, deduplication, filter integration.               |
+| `RateLimiter`         | Per-domain token bucket with `Crawl-delay` support.                         |
+| `RobotsChecker`       | Fetches & caches `robots.txt`, answers `is_allowed(url)`.                   |
+| `URLFilter` / `DomainFilter` / `CombinedFilter` | Glob/regex/extension/domain matching (`filters.py`).             |
+| `CheckpointManager`   | Append page records and crawl state to a `CheckpointStorage`.               |
+| `CheckpointStorage`   | Pluggable backend (local file, S3).                                         |
+| `Writer`              | Final-output serialization (JSON, JSONL, Parquet, text).                    |
+| `CrawlStats`          | Post-crawl analysis (depth, domains, content quality).                      |
+
+## Lifecycle of a crawl
+
+<CrawlLifecycle />
+
+## Why this shape?
+
+**Async workers, not threads.** Crawling is I/O bound. `asyncio` lets one process handle hundreds of concurrent requests without the overhead of OS threads.
+
+**A real queue, not recursion.** Depth-limited BFS gives predictable memory usage and clean depth metadata. The scheduler also owns deduplication, so workers can't accidentally re-fetch the same URL.
+
+**Rate limiting at the gate.** Token bucket per domain — workers compete for tokens, so even if you've got 50 concurrent requests, no single domain sees more than `requests_per_second`.
+
+**Checkpoints as an append log.** Pages stream to checkpoint as soon as they're crawled, so a crash never costs you more than the in-flight batch. State (visited set, queue, filters) is written at the end and on every flush interval.
+
+## Where to extend
+
+- **Custom storage backend** — implement [`CheckpointStorage`](/docs/api/storage) (`write`, `read`, `exists`, `flush`, `close`) for Redis, GCS, Azure Blob, etc.
+- **Custom filter** — implement `should_crawl(url) -> bool` and pass it via the `url_filter` argument to `Crawler`.
+- **Custom extractor** — replace the default trafilatura-based `Extractor` for domain-specific extraction (PDFs, schema.org parsing, etc.).
+
+## Code locations
+
+The full source lives at <a href="https://github.com/ErikkJs/yoink/tree/main/src/yoink">github.com/ErikkJs/yoink/tree/main/src/yoink</a>. ~3,200 lines of Python across 18 files, each module focused, with 134 passing tests under `tests/`.

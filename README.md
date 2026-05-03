@@ -6,6 +6,8 @@
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Tests](https://img.shields.io/badge/tests-134%20passing-brightgreen.svg)
 
+📚 **Docs:** <https://yoink.goatsquadstudios.com>
+
 **YOINK** is a fast, async web crawler built for extracting clean, AI-ready data from public websites. Simple to use, respectful of servers, and outputs data in formats ready for machine learning pipelines.
 
 ## Features

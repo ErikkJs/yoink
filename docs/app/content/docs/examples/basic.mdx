@@ -1,0 +1,98 @@
+---
+title: Basic crawl
+description: A minimal end-to-end example — crawl, save, inspect.
+category: Examples
+---
+
+The fewest lines of code that does something useful.
+
+<Callout variant="info" title="The corresponding file in the repo">
+[`examples/basic_crawl.py`](https://github.com/ErikkJs/yoink/blob/main/examples/basic_crawl.py) is a minimal starter — just a `Crawler()` with defaults that prints page summaries. The script below extends that to also save JSONL and print stats. Use whichever fits.
+</Callout>
+
+## Script
+
+Save this as `my_crawl.py`:
+
+```python
+import asyncio
+from pathlib import Path
+from yoink import Crawler, CrawlConfig
+from yoink.writers import Writer
+from yoink.stats import CrawlStats
+
+async def main():
+    config = CrawlConfig(
+        max_depth=2,
+        max_pages=50,
+        requests_per_second=2.0,
+    )
+    crawler = Crawler(config=config)
+    pages = await crawler.crawl("https://example.com")
+
+    # Save to JSONL
+    output = Path("example.jsonl")
+    Writer.write_jsonl(pages, output)
+    print(f"Saved {len(pages)} pages to {output}")
+
+    # Print summary
+    stats = CrawlStats(pages)
+    print(stats.format_summary())
+
+asyncio.run(main())
+```
+
+## Run it
+
+```bash
+python my_crawl.py
+```
+
+## What you get
+
+1. `example.jsonl` — one JSON object per page.
+2. A formatted summary printed to stdout (depth distribution, top domains, content quality).
+
+## Variations
+
+### Save HTML too
+
+```python
+config = CrawlConfig(
+    max_depth=2,
+    max_pages=50,
+    save_html=True,  # raw HTML on each Page record
+)
+```
+
+### Multiple output formats
+
+```python
+Writer.write_jsonl(pages, Path("data.jsonl"))
+Writer.write_parquet(pages, Path("data.parquet"))
+Writer.write_text(pages, Path("data.txt"))
+```
+
+### Filter file types
+
+```python
+from yoink.filters import CombinedFilter
+
+url_filter = CombinedFilter.from_config(
+    skip_extensions=["pdf", "zip", "exe", "jpg", "png"],
+)
+
+crawler = Crawler(config=config, url_filter=url_filter)
+```
+
+## Same thing on the CLI
+
+```bash
+yoink crawl https://example.com -d 2 -n 50 -o example.jsonl
+yoink stats example.jsonl
+```
+
+## See also
+
+- [Quickstart](/docs/quickstart) — the same idea, even shorter.
+- [`Crawler`](/docs/api/crawler) and [`CrawlConfig`](/docs/api/config) for the full API.

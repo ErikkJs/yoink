@@ -1,0 +1,94 @@
+---
+title: Writers
+description: Serialize a list of Page objects to JSON, JSONL, Parquet, or plain text.
+category: Python API
+---
+
+`Writer` is a static helper class with one method per output format. Used internally by the CLI; available directly for programmatic use.
+
+## Import
+
+```python
+from yoink.writers import Writer
+```
+
+## Methods
+
+<PropTable rows={[
+  { name: "write_json(pages, path)", type: "staticmethod", description: "Single JSON array. Good for small datasets." },
+  { name: "write_jsonl(pages, path)", type: "staticmethod", description: "Newline-delimited JSON. Recommended for AI pipelines and large datasets." },
+  { name: "write_parquet(pages, path)", type: "staticmethod", description: "Columnar Parquet. Requires the [parquet] extra (pyarrow). Snappy-compressed." },
+  { name: "write_text(pages, path)", type: "staticmethod", description: "Plain text dump — URL, title, separator, extracted text." },
+]} />
+
+## Examples
+
+### After a crawl
+
+```python
+from pathlib import Path
+from yoink import Crawler
+from yoink.writers import Writer
+
+async def main():
+    crawler = Crawler()
+    pages = await crawler.crawl("https://example.com")
+
+    Writer.write_jsonl(pages, Path("data.jsonl"))
+    Writer.write_parquet(pages, Path("data.parquet"))
+```
+
+### Parquet for analytics
+
+```python
+import pandas as pd
+
+Writer.write_parquet(pages, Path("data.parquet"))
+
+df = pd.read_parquet("data.parquet")
+print(df["depth"].value_counts())
+print(df.groupby("depth")["num_links"].mean())
+```
+
+The Parquet schema is **flattened** for analytical queries:
+
+<ParquetSchema />
+
+### Text dump
+
+```python
+Writer.write_text(pages, Path("dump.txt"))
+```
+
+Output:
+
+```
+URL: https://example.com
+Title: Example Domain
+--------------------------------------------------------------------------------
+This domain is for use in illustrative examples in documents...
+
+================================================================================
+
+URL: https://example.com/about
+Title: About
+...
+```
+
+When a page has no `title`, the field is rendered as `Title: N/A`.
+
+## Output format choice
+
+| Format     | Best for                                    | Streaming? | Compressed? |
+| ---------- | ------------------------------------------- | ---------- | ----------- |
+| `jsonl`    | AI / ML pipelines, large datasets           | yes        | no          |
+| `json`     | Small datasets, debugging                   | no         | no          |
+| `parquet`  | Analytics, pandas, columnar storage         | yes (rows) | yes (snappy)|
+| `text`     | Quick eyeballing, archival                  | no         | no          |
+
+For most use cases, **JSONL is the default answer.**
+
+## See also
+
+- [Output formats reference](/docs/reference/output-formats).
+- [`Page`](/docs/api/page) — what gets serialized.

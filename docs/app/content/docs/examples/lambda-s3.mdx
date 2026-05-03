@@ -1,0 +1,177 @@
+---
+title: Lambda + S3 checkpoints
+description: A resumable AWS Lambda crawler that survives 15-minute timeouts via S3 checkpoints.
+category: Examples
+---
+
+AWS Lambda has a hard 15-minute execution limit. A crawl that wants to survive longer than that needs to checkpoint and resume across invocations. With yoink, that's about 20 lines of code.
+
+## The architecture
+
+<LambdaArchitecture />
+
+## Lambda handler
+
+```python
+import asyncio
+import json
+import os
+
+from yoink import Crawler, CrawlConfig, CheckpointManager
+
+CHECKPOINT_BUCKET = os.environ["CHECKPOINT_BUCKET"]
+CHECKPOINT_KEY    = os.environ["CHECKPOINT_KEY"]      # e.g. "crawls/example-com.jsonl"
+START_URL         = os.environ["START_URL"]
+MAX_PAGES         = int(os.environ.get("MAX_PAGES", "10000"))
+
+# Reserve ~30s for Lambda housekeeping
+TIME_BUDGET_SECONDS = 14 * 60
+
+async def crawl_chunk():
+    config = CrawlConfig(
+        max_depth=4,
+        max_pages=MAX_PAGES,
+        max_concurrency=20,
+        requests_per_second=10.0,
+    )
+
+    checkpoint_uri = f"s3://{CHECKPOINT_BUCKET}/{CHECKPOINT_KEY}"
+    checkpoint = CheckpointManager.from_uri(checkpoint_uri, flush_interval=50)
+
+    crawler = Crawler(config=config, checkpoint_manager=checkpoint)
+
+    # Resume picks up if checkpoint exists, else starts fresh
+    pages = await asyncio.wait_for(
+        crawler.crawl(START_URL, resume=True),
+        timeout=TIME_BUDGET_SECONDS,
+    )
+    return pages
+
+def handler(event, context):
+    try:
+        pages = asyncio.run(crawl_chunk())
+        done = len(pages) >= MAX_PAGES
+    except asyncio.TimeoutError:
+        # Hit the time budget — we'll resume on the next invocation
+        done = False
+        pages = []
+
+    return {
+        "statusCode": 200,
+        "body": json.dumps({
+            "pages_so_far": len(pages),
+            "done": done,
+        }),
+    }
+```
+
+## Deploy
+
+### IAM role
+
+The Lambda execution role needs:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:HeadObject"],
+      "Resource": "arn:aws:s3:::your-checkpoint-bucket/*"
+    }
+  ]
+}
+```
+
+### Lambda layer
+
+Bundle yoink and its `[s3]` extra into a layer:
+
+```bash
+mkdir -p layer/python
+pip install --target layer/python "yoink[s3]"
+cd layer && zip -r ../yoink-layer.zip python && cd ..
+aws lambda publish-layer-version \
+  --layer-name yoink \
+  --zip-file fileb://yoink-layer.zip \
+  --compatible-runtimes python3.11
+```
+
+### Function
+
+```bash
+aws lambda create-function \
+  --function-name yoink-crawler \
+  --runtime python3.11 \
+  --role arn:aws:iam::ACCOUNT:role/yoink-crawler-role \
+  --handler handler.handler \
+  --timeout 900 \
+  --memory-size 1024 \
+  --layers arn:aws:lambda:REGION:ACCOUNT:layer:yoink:1 \
+  --zip-file fileb://handler.zip \
+  --environment "Variables={CHECKPOINT_BUCKET=...,CHECKPOINT_KEY=crawls/example.jsonl,START_URL=https://example.com}"
+```
+
+### Schedule
+
+```bash
+aws events put-rule \
+  --name yoink-crawler-tick \
+  --schedule-expression "rate(14 minutes)"
+
+aws events put-targets \
+  --rule yoink-crawler-tick \
+  --targets "Id=1,Arn=arn:aws:lambda:REGION:ACCOUNT:function:yoink-crawler"
+
+aws lambda add-permission \
+  --function-name yoink-crawler \
+  --statement-id allow-eventbridge \
+  --action lambda:InvokeFunction \
+  --principal events.amazonaws.com \
+  --source-arn arn:aws:events:REGION:ACCOUNT:rule/yoink-crawler-tick
+```
+
+## Observability
+
+A few things worth logging:
+
+```python
+import structlog
+log = structlog.get_logger()
+
+# in handler:
+log.info("invocation_complete",
+    pages_so_far=len(pages),
+    done=done,
+    checkpoint=checkpoint_uri,
+)
+```
+
+You can read the checkpoint file from anywhere with read access — `aws s3 cp`, the AWS console, or a small Lambda that loads it via `CheckpointManager.from_uri(...).load()`.
+
+## Stopping the schedule
+
+When `done=True`, disable the EventBridge rule (or have the Lambda do it):
+
+```python
+import boto3
+
+if done:
+    boto3.client("events").disable_rule(Name="yoink-crawler-tick")
+```
+
+<Callout variant="tip" title="Process the result while you crawl">
+Don't wait for the whole crawl to finish before doing something with it. The checkpoint file is JSONL — kick off a parallel Lambda or Glue job that tails it and processes new lines.
+</Callout>
+
+## See also
+
+- [Checkpointing concepts](/docs/concepts/checkpointing).
+- [`CheckpointManager`](/docs/api/checkpoint).
+- [Storage backends](/docs/api/storage).

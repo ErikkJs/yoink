@@ -5,8 +5,9 @@ description = "YOINK - The public data crawler. Because it's public."
 authors = ["csgod"]
 readme = "README.md"
 license = "MIT"
-homepage = "https://github.com/ErikkJs/yoink"
+homepage = "https://yoink.goatsquadstudios.com"
 repository = "https://github.com/ErikkJs/yoink"
+documentation = "https://yoink.goatsquadstudios.com"
 keywords = ["web-crawler", "scraper", "ai", "data-extraction", "async"]
 classifiers = [
     "Development Status :: 3 - Alpha",

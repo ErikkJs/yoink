@@ -1,21 +1,23 @@
-# Python
+# Python (scoped to repo root only — these names also exist as legitimate
+# source dirs in subprojects like docs/, where `lib/` is React utilities and
+# `data/` is config data, not Python build output).
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -43,12 +45,12 @@ poetry.lock
 htmlcov/
 .tox/
 
-# Output
+# Output (scoped to repo root for the same reason as Python ignores above)
 *.json
 *.jsonl
 *.parquet
-crawl_output/
-data/
+/crawl_output/
+/data/
 
 # OS
 .DS_Store
@@ -61,3 +63,18 @@ logs/
 # CDK
 deployment/aws-cdk/cdk.out/
 deployment/aws-cdk/node_modules/
+
+# Docs site (React Router app under docs/)
+docs/node_modules/
+docs/build/
+docs/.amplify-hosting/
+docs/.react-router/
+docs/dist/
+docs/.vite/
+
+# The root *.json rule above is for crawl output; un-ignore docs config files
+!docs/**/*.json
+
+# Claude Code workspace temp dirs
+tmpclaude-*/
+tmpclaude-*

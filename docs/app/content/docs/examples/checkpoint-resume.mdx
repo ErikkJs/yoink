@@ -1,0 +1,106 @@
+---
+title: Checkpoint & resume
+description: Three patterns for resumable crawls — local file, S3 across processes, and a Lambda handler that survives 15-minute timeouts.
+category: Examples
+---
+
+The repo's [`examples/checkpoint_resume.py`](https://github.com/ErikkJs/yoink/blob/main/examples/checkpoint_resume.py) bundles three runnable scenarios that map cleanly onto real production patterns. This page walks through each.
+
+## 1. Local file checkpoint
+
+The simplest case: long crawl on your laptop, want to be able to Ctrl-C and pick up where you left off.
+
+```python
+import asyncio
+from yoink import Crawler, CrawlConfig, CheckpointManager
+
+async def main():
+    config = CrawlConfig(
+        max_depth=2,
+        max_pages=100,
+        max_concurrency=10,
+    )
+
+    checkpoint = CheckpointManager.from_uri(
+        "./crawl.jsonl",
+        flush_interval=5,  # state snapshot every 5 pages
+    )
+
+    crawler = Crawler(config=config, checkpoint_manager=checkpoint)
+
+    try:
+        # First run, OR resume — same call either way
+        pages = await crawler.crawl("https://example.com", resume=True)
+        print(f"Crawled {len(pages)} pages")
+    except KeyboardInterrupt:
+        print("Interrupted! Checkpoint saved. Re-run to resume.")
+
+asyncio.run(main())
+```
+
+What `resume=True` does on a fresh run with no checkpoint: starts from scratch. With an existing checkpoint: restores `visited`, `queue`, and previously-yoinked pages, then continues from the queue.
+
+## 2. S3 checkpoint (cross-process)
+
+Same code, different URI. Useful when the crawl might run on different hosts (e.g., a fresh container picks up where a killed one left off):
+
+```python
+config = CrawlConfig(max_depth=2, max_pages=1000, max_concurrency=20)
+
+checkpoint = CheckpointManager.from_uri(
+    "s3://my-crawl-bucket/checkpoints/example.jsonl",
+    flush_interval=10,  # higher → fewer S3 API calls
+)
+
+crawler = Crawler(config=config, checkpoint_manager=checkpoint)
+pages = await crawler.crawl("https://example.com", resume=True)
+```
+
+Requires the `s3` extra (`pip install -e ".[s3]"`) and AWS credentials in the environment / IAM role / `~/.aws/credentials`.
+
+<Callout variant="tip" title="Why higher flush_interval on S3">
+Each flush is a download-mutate-upload round-trip on the S3 object (S3 has no native append). For a small/medium crawl, `flush_interval=10` keeps the API call rate sensible without losing more than ~10 pages of state on a crash.
+</Callout>
+
+## 3. Lambda handler
+
+This is the pattern that makes long crawls survive Lambda's hard 15-minute timeout. Each invocation crawls for ~14 minutes, checkpoints to S3, and exits. EventBridge re-invokes; the next run resumes from the same checkpoint.
+
+```python
+async def lambda_handler():
+    event = {"url": "https://example.com"}
+
+    checkpoint = CheckpointManager.from_uri(
+        "s3://my-crawl-bucket/lambda-checkpoints/crawl.jsonl",
+        flush_interval=10,
+    )
+
+    config = CrawlConfig(max_pages=5000, max_concurrency=30, max_depth=3)
+    crawler = Crawler(config=config, checkpoint_manager=checkpoint)
+
+    pages = await crawler.crawl(event["url"], resume=True)
+
+    return {
+        "statusCode": 200,
+        "body": {
+            "pages_crawled": len(pages),
+            "message": "Crawl completed or checkpoint saved for next invocation",
+        },
+    }
+```
+
+For the full deployment recipe (IAM role, EventBridge schedule, layer build), see [Lambda + S3 checkpoints](/docs/examples/lambda-s3).
+
+## Running the bundled file
+
+```bash
+poetry run python examples/checkpoint_resume.py
+```
+
+By default this runs the local-file scenario. The S3 and Lambda scenarios are commented out at the bottom of the file — uncomment after you've configured AWS credentials.
+
+## See also
+
+- [Checkpointing concepts](/docs/concepts/checkpointing) — file format, resume semantics, when to use.
+- [`CheckpointManager` API](/docs/api/checkpoint).
+- [Storage backends](/docs/api/storage).

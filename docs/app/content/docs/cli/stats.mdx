@@ -1,0 +1,119 @@
+---
+title: yoink stats
+description: Analyze a saved crawl — page counts, depth distribution, top domains, content quality metrics.
+category: CLI
+---
+
+`yoink stats` reads a crawl output file (JSON or JSONL) and prints a human-readable summary, with optional CSV / JSON export.
+
+```bash
+yoink stats FILE [OPTIONS]
+```
+
+## Examples
+
+```bash
+# Human-readable summary
+yoink stats crawl_output.jsonl
+
+# Export to CSV for spreadsheet work
+yoink stats crawl_output.jsonl --export stats.csv
+
+# JSON output
+yoink stats crawl_output.jsonl --json
+```
+
+<Callout variant="warning" title="Piping --json into jq">
+`yoink stats --json` currently writes one structlog INFO line to stdout before the JSON payload (the `loaded_pages` event). To pipe cleanly into `jq`, strip the first line:
+
+```bash
+yoink stats data.jsonl --json | tail -n +2 | jq '.total_pages'
+```
+
+This will be fixed in a future release; until then, the workaround is mechanical.
+</Callout>
+
+## Options
+
+<PropTable rows={[
+  { name: "FILE", type: "argument", required: true, description: "Path to a .json or .jsonl file produced by yoink crawl." },
+  { name: "--export, -e", type: "PATH", description: "Write summary stats to a CSV file at the given path." },
+  { name: "--json", type: "FLAG", description: "Output full stats as JSON instead of the formatted text summary." },
+]} />
+
+## What it computes
+
+For every page in the file:
+
+- **Total pages, total links, average links per page**
+- **Total text size and average text size** (bytes)
+- **Total HTML size** if `--save-html` was used
+- **Depth distribution** — how many pages at each depth
+- **Unique domains and top 10 domains** by page count
+- **Status code distribution**
+- **Content quality** — share of pages with text, title, metadata
+- **Text length stats** — min / median / max characters
+
+## Sample output
+
+```
+============================================================
+YOINK Crawl Statistics
+============================================================
+
+Total Pages: 87
+Total Links: 1,243
+Avg Links/Page: 14.29
+
+Content Size:
+  Total Text: 412.39 KB
+  Avg Text/Page: 4.74 KB
+
+Domains:
+  Unique Domains: 1
+  Top Domains:
+    - docs.example.com: 87 pages
+
+Depth Distribution:
+  Depth 0:    1 #
+  Depth 1:   24 ########################
+  Depth 2:   62 ##############################################################
+
+Content Quality:
+  Pages with Text: 85 (97.7%)
+  Pages with Title: 87 (100.0%)
+  Pages with Metadata: 73 (83.9%)
+
+Text Length:
+  Min: 142 chars
+  Median: 3,891 chars
+  Max: 28,442 chars
+============================================================
+```
+
+## JSON output (`--json`)
+
+```json
+{
+  "total_pages": 87,
+  "total_links": 1243,
+  "avg_links_per_page": 14.29,
+  "total_text_size": 422291,
+  "max_depth": 2,
+  "pages_by_depth": { "0": 1, "1": 24, "2": 62 },
+  "unique_domains": 1,
+  "top_domains": [{ "domain": "docs.example.com", "count": 87 }],
+  "status_codes": { "200": 87 },
+  "pages_with_text": 85,
+  "pages_with_title": 87,
+  "pages_with_metadata": 73,
+  "text_length_min": 142,
+  "text_length_median": 3891,
+  "text_length_max": 28442
+}
+```
+
+## See also
+
+- The `CrawlStats` Python API: [`yoink.stats`](/docs/api/stats).
+- Output formats: [reference/output-formats](/docs/reference/output-formats).

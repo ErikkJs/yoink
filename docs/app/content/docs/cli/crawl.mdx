@@ -1,0 +1,125 @@
+---
+title: yoink crawl
+description: Complete reference for the yoink crawl command — every flag, every option, with examples.
+category: CLI
+---
+
+`yoink crawl` is the workhorse: it takes a URL, fetches pages, and writes the result.
+
+```bash
+yoink crawl URL [OPTIONS]
+```
+
+## Examples
+
+```bash
+# The minimum
+yoink crawl https://example.com
+
+# Reasonable defaults for a small docs crawl
+yoink crawl https://docs.example.com -d 2 -n 200 -o docs.jsonl
+
+# JS-heavy SPA, output as Parquet
+yoink crawl https://spa.com --render-js --format parquet -o data.parquet
+
+# Resumable to S3
+yoink crawl https://example.com \
+  --checkpoint s3://my-bucket/crawl.jsonl \
+  --resume \
+  --rate-limit 5 \
+  --depth 3
+```
+
+## Core options
+
+<PropTable rows={[
+  { name: "URL", type: "argument", required: true, description: "The starting URL of the crawl. Must include scheme (http:// or https://)." },
+  { name: "--depth, -d", type: "INTEGER", default: "1", description: "Maximum crawl depth from the start URL. Depth 0 = start URL only." },
+  { name: "--max-pages, -n", type: "INTEGER", default: "100", description: "Hard cap on total pages crawled across the whole run." },
+  { name: "--concurrency, -c", type: "INTEGER", default: "10", description: "Number of concurrent worker coroutines fetching pages." },
+  { name: "--format, -f", type: "json | jsonl | parquet | text", default: "jsonl", description: "Output format. parquet requires the [parquet] extra." },
+  { name: "--output, -o", type: "PATH", default: "crawl_output.<format>", description: "Output file path. Skipped if --checkpoint is set without --output." },
+  { name: "--follow-external", type: "FLAG", default: "false", description: "Follow links to domains other than the start URL's domain." },
+  { name: "--save-html", type: "FLAG", default: "false", description: "Persist raw HTML on each Page record (large output)." },
+  { name: "--user-agent", type: "TEXT", default: "yoink/<ver> (+github)", description: "Custom User-Agent string sent on every request." },
+]} />
+
+## URL filtering
+
+<PropTable rows={[
+  { name: "--include", type: "TEXT (repeatable)", description: "Glob/regex/substring patterns. URL must match at least one to be queued." },
+  { name: "--exclude", type: "TEXT (repeatable)", description: "Glob/regex/substring patterns. URL is dropped if it matches any." },
+  { name: "--skip-extensions", type: "TEXT", description: "Comma-separated extensions to skip (e.g., pdf,zip,exe). No leading dot needed." },
+]} />
+
+See [URL filtering](/docs/concepts/url-filtering) for pattern semantics.
+
+## Checkpointing
+
+<PropTable rows={[
+  { name: "--checkpoint", type: "TEXT", description: "Local path or s3://bucket/key to enable resumable checkpointing." },
+  { name: "--checkpoint-interval", type: "INTEGER", default: "10", description: "Number of pages between state flushes. Higher = less I/O." },
+  { name: "--resume", type: "FLAG", default: "false", description: "Pick up where the checkpoint left off. Requires --checkpoint." },
+]} />
+
+See [Checkpointing](/docs/concepts/checkpointing) for details.
+
+## Rate limiting
+
+<PropTable rows={[
+  { name: "--rate-limit, -r", type: "FLOAT", default: "2.0", description: "Maximum requests per second per domain (token bucket fill rate)." },
+  { name: "--request-delay", type: "FLOAT", default: "0.0", description: "Minimum seconds between consecutive requests to the same domain." },
+]} />
+
+See [Rate limiting](/docs/concepts/rate-limiting).
+
+## robots.txt
+
+<PropTable rows={[
+  { name: "--no-robots", type: "FLAG", default: "false", description: "Skip robots.txt entirely. Use responsibly — see warning in docs." },
+]} />
+
+See [robots.txt compliance](/docs/concepts/robots-txt).
+
+## JavaScript rendering
+
+Requires the `[browser]` extra (`pip install "yoink[browser]"` and `playwright install chromium`).
+
+<PropTable rows={[
+  { name: "--render-js, --browser", type: "FLAG", default: "false", description: "Use Playwright instead of the HTTP fetcher." },
+  { name: "--wait-for", type: "load | domcontentloaded | networkidle | commit", default: "networkidle", description: "Page load wait strategy. See JavaScript rendering docs." },
+  { name: "--wait-selector", type: "TEXT", description: "CSS selector to wait for after wait_strategy fires." },
+  { name: "--browser-type", type: "chromium | firefox | webkit", default: "chromium", description: "Browser engine to launch." },
+  { name: "--no-headless", type: "FLAG", default: "false", description: "Show the browser window (debugging)." },
+]} />
+
+See [JavaScript rendering](/docs/concepts/javascript-rendering).
+
+## Output
+
+By default, yoink prints progress to stderr and a summary to stdout when finished:
+
+```
+Yoinking https://example.com...
+Max depth: 2, Max pages: 100, Concurrency: 10
+Rate limit: 2.0 req/s, Robots.txt: enabled
+Yoinking pages: 100%|████████| 87/100 [00:42<00:00,  2.07page/s]
+Yoinked 87 pages to crawl_output.jsonl
+Total links found: 1,243
+Total text extracted: 412,891 characters
+```
+
+Pipe stderr away if you only want the summary:
+
+```bash
+yoink crawl https://example.com 2>/dev/null
+```
+
+## Exit codes
+
+- `0` — always. The CLI prints errors to stderr but currently exits `0` on every code path, including bad config (e.g., `--resume` without `--checkpoint`) and write errors. If you script around `yoink crawl` and need to detect failure, scan stderr or check that the output file exists and is non-empty.
+
+## See also
+
+- [`yoink stats`](/docs/cli/stats) — analyze the output of a crawl.
+- [Quickstart](/docs/quickstart) — concrete examples.

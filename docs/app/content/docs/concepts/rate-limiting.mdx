@@ -1,0 +1,103 @@
+---
+title: Rate limiting
+description: Per-domain token bucket rate limiting with burst support, minimum delays, and Crawl-delay honoring.
+category: Concepts
+---
+
+yoink rate-limits at the **fetcher gate** — every outbound request has to acquire a token before going out. This protects target servers, keeps you on the right side of `robots.txt` `Crawl-delay`, and avoids tripping basic anti-abuse heuristics.
+
+## The mechanism: token bucket
+
+A token bucket fills at a constant rate (your `requests_per_second`) and holds a fixed maximum number of tokens (its capacity). Each request consumes one token. If the bucket is empty, the request waits until a token regenerates.
+
+<TokenBucket rate={2.0} capacity={1} filled={1} />
+
+This gives you smooth traffic shaping at sustained `requests_per_second`. The default `burst_size=1` means there's no extra burst headroom — the very first request consumes the only token, and subsequent requests pace themselves at exactly your configured rate.
+
+`burst_size` is a knob on the `RateLimiter` class but is **not** currently surfaced on `CrawlConfig` or the CLI. If you need bursts (e.g., 10 RPS sustained but happy to fire 5 in a row when idle), construct the limiter directly:
+
+```python
+from yoink.rate_limiter import RateLimiter
+
+limiter = RateLimiter(requests_per_second=10.0, burst_size=5)
+# then pass to your fetcher manually if subclassing
+```
+
+For most workloads, the `requests_per_second=2.0, burst_size=1` defaults are exactly what you want — polite, predictable, no surprises.
+
+## Per-domain isolation
+
+Rate limits are scoped to each domain you crawl. If `--follow-external` is enabled and your crawl visits both `docs.python.org` and `python.org`, they each get an independent bucket. Misbehaving on one domain can't slow another.
+
+```python
+config = CrawlConfig(
+    requests_per_second=5.0,   # 5 RPS per domain
+    max_concurrency=20,        # but only 20 concurrent overall
+)
+```
+
+## `request_delay` — a wait-time floor
+
+`request_delay` is a hard floor on the wait time computed by `acquire()` for each request to a given domain. With `request_delay=0.5`, every request to that domain (including the first) sleeps at least 500ms before being released, even if the token bucket has tokens available.
+
+```bash
+yoink crawl https://example.com --rate-limit 5.0 --request-delay 0.5
+# Up to 5 RPS by token bucket, but every release sleeps ≥ 500ms
+```
+
+In Python:
+
+```python
+config = CrawlConfig(
+    requests_per_second=5.0,
+    request_delay=0.5,  # seconds; per-acquire floor
+)
+```
+
+<Callout variant="info" title="It's a floor, not a gap">
+`request_delay` raises the floor on `acquire()`'s wait calculation, so it's effectively a per-request "wait at least this long." With `burst_size=1` and `request_delay=0.5`, you get a steady cadence of one request every 500ms (or slower, if the bucket is empty). It's not literally measured "between consecutive completions" — it's the minimum sleep before each token is handed out.
+</Callout>
+
+## robots.txt `Crawl-delay`
+
+When `respect_robots=True` (the default), yoink reads each domain's `robots.txt` and applies its `Crawl-delay` directive by reducing the bucket's refill rate to `1 / crawl_delay` requests per second — but only if that's stricter than your configured rate. The stricter limit always wins.
+
+<Callout variant="info" title="Concretely">
+If your config says `requests_per_second=5.0` (1 request every 200ms) and the site's `robots.txt` has `Crawl-delay: 1`, the bucket's effective rate drops to 1 RPS for that domain — yoink will wait at least 1 second between requests there. Your config is the ceiling, not the floor.
+</Callout>
+
+<Callout variant="warning" title="Rate adjustments are sticky">
+Once a `Crawl-delay` reduces the bucket's rate, it stays reduced for the lifetime of that `RateLimiter` even if `robots.txt` is later refreshed with a less-restrictive value. In practice this only matters if you cache an extremely strict `Crawl-delay` and the site loosens it during your crawl — generally a non-issue.
+</Callout>
+
+## Picking sane defaults
+
+A non-exhaustive heuristic:
+
+| Target              | Suggested `requests_per_second` |
+| ------------------- | ------------------------------- |
+| Personal blog       | 1.0                             |
+| Documentation site  | 2.0 – 5.0                       |
+| Public API / large news site | 5.0 – 10.0             |
+| Your own staging server | Whatever you want           |
+
+If the site you're crawling publishes a `Crawl-delay`, honor it — yoink does this for you, but you can also set `request_delay` explicitly to make the constraint visible at the call site.
+
+## Disabling rate limiting
+
+You can't turn it fully off, but you can effectively disable it for testing:
+
+```python
+config = CrawlConfig(
+    requests_per_second=1000,  # absurdly high
+    request_delay=0.0,
+)
+```
+
+For real workloads: don't.
+
+## See also
+
+- [`CrawlConfig.requests_per_second`](/docs/api/config) and `request_delay` reference.
+- [robots.txt compliance](/docs/concepts/robots-txt) — how `Crawl-delay` is parsed and applied.
+- The `RateLimiter` module: <a href="https://github.com/ErikkJs/yoink/blob/main/src/yoink/rate_limiter.py">src/yoink/rate_limiter.py</a>.

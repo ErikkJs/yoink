@@ -1,0 +1,10 @@
+node_modules/
+build/
+.amplify-hosting/
+.react-router/
+dist/
+.DS_Store
+*.log
+.env
+.env.local
+.vite/

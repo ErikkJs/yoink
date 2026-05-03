@@ -1,0 +1,115 @@
+---
+title: Quickstart
+description: Yoink your first website in under a minute — CLI and Python.
+category: Getting started
+---
+
+This page gets you from zero to a finished crawl twice: once on the CLI, once in Python.
+
+## Your first CLI crawl
+
+```bash
+yoink crawl https://example.com
+```
+
+That's it. yoink will:
+
+1. Fetch the start URL, parse it, extract text, and follow links.
+2. Default to depth `1` and `100 pages` — adjust with `--depth` and `--max-pages`.
+3. Rate-limit to `2` requests per second per domain and respect `robots.txt`.
+4. Write results to `crawl_output.jsonl` in the current directory.
+
+Open the file:
+
+```bash
+head -1 crawl_output.jsonl | python -m json.tool
+```
+
+## A more useful crawl
+
+```bash
+yoink crawl https://docs.python.org \
+  --depth 2 \
+  --max-pages 50 \
+  --include "*/tutorial/*" \
+  --skip-extensions pdf,zip \
+  --format jsonl \
+  -o python_tutorial.jsonl
+```
+
+What's happening:
+
+- `--depth 2` follows two link hops from the start URL.
+- `--include "*/tutorial/*"` only crawls URLs matching that glob.
+- `--skip-extensions pdf,zip` ignores binary file links.
+- `--format jsonl -o python_tutorial.jsonl` streams one JSON object per page to disk.
+
+Then inspect what you got:
+
+```bash
+yoink stats python_tutorial.jsonl
+```
+
+You'll see total pages, link counts, depth distribution, top domains, and content quality metrics.
+
+## Your first Python crawl
+
+```python
+import asyncio
+from yoink import Crawler, CrawlConfig
+
+async def main():
+    config = CrawlConfig(
+        max_depth=2,
+        max_pages=100,
+        max_concurrency=10,
+        requests_per_second=2.0,
+    )
+    crawler = Crawler(config=config)
+    pages = await crawler.crawl("https://example.com")
+
+    for page in pages:
+        print(f"{page.status_code} {page.url}")
+        print(f"  title: {page.title}")
+        print(f"  text: {len(page.text or '')} chars")
+
+asyncio.run(main())
+```
+
+## Resumable crawls
+
+Long crawls die. Plan for it from day one with checkpointing:
+
+```python
+from yoink import Crawler, CrawlConfig, CheckpointManager
+
+async def main():
+    config = CrawlConfig(max_depth=3, max_pages=10_000)
+    checkpoint = CheckpointManager.from_uri("./crawl.jsonl")
+
+    crawler = Crawler(config=config, checkpoint_manager=checkpoint)
+
+    # Pick up where we left off if the file already exists
+    pages = await crawler.crawl("https://docs.example.com", resume=True)
+    return pages
+```
+
+Same on the CLI:
+
+```bash
+# First run — interrupted with Ctrl-C
+yoink crawl https://docs.example.com --checkpoint ./crawl.jsonl
+
+# Resume
+yoink crawl https://docs.example.com --checkpoint ./crawl.jsonl --resume
+```
+
+<Callout variant="tip" title="S3 checkpoints work the same way">
+Replace the path with `s3://my-bucket/crawl.jsonl` and yoink will buffer writes and flush them to S3. Survives Lambda timeouts and restarts. See [Lambda + S3 checkpoints](/docs/examples/lambda-s3).
+</Callout>
+
+## What to read next
+
+- **Concepts** — [architecture](/docs/concepts/architecture), [rate limiting](/docs/concepts/rate-limiting), [JS rendering](/docs/concepts/javascript-rendering).
+- **CLI reference** — every `yoink crawl` flag, [explained](/docs/cli/crawl).
+- **Python API** — [`Crawler`](/docs/api/crawler), [`CrawlConfig`](/docs/api/config), [`CheckpointManager`](/docs/api/checkpoint).

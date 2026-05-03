@@ -1,0 +1,29 @@
+---
+title: yoink version
+description: Print yoink's version and a one-liner description.
+category: CLI
+---
+
+```bash
+yoink version
+```
+
+Output:
+
+```
+yoink version 0.1.0
+The public data crawler.
+```
+
+That's it. Useful for shell scripts and CI pipelines that want to assert a minimum version.
+
+```bash
+yoink version | head -1 | awk '{print $3}'
+# 0.1.0
+```
+
+You can also use the standard `--version` flag on the root command:
+
+```bash
+yoink --version
+```

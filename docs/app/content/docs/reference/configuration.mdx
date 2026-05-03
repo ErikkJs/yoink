@@ -1,0 +1,96 @@
+---
+title: Configuration reference
+description: Quick-scan reference for every configuration option, organized by section.
+category: Reference
+---
+
+This page is the dense, scrolling reference. For prose explanations, see the corresponding concept pages.
+
+## Core
+
+<PropTable rows={[
+  { name: "max_depth", type: "int", default: "1", description: <>Max link-hop distance from start URL. <a href="/docs/concepts/architecture">Architecture</a>.</> },
+  { name: "max_pages", type: "int", default: "100", description: "Total page cap." },
+  { name: "max_concurrency", type: "int", default: "10", description: "Worker coroutines (1..100)." },
+  { name: "user_agent", type: "str", default: "yoink/<ver> (+github)", description: "User-Agent header." },
+  { name: "timeout", type: "int", default: "30", description: "Per-request timeout (seconds)." },
+  { name: "follow_external", type: "bool", default: "False", description: "Follow links to other domains." },
+  { name: "extract_text", type: "bool", default: "True", description: "Run trafilatura for clean text." },
+  { name: "save_html", type: "bool", default: "False", description: "Persist raw HTML on each Page." },
+]} />
+
+## Rate limiting
+
+<PropTable rows={[
+  { name: "requests_per_second", type: "float", default: "2.0", description: <>Per-domain token-bucket fill rate. <a href="/docs/concepts/rate-limiting">Rate limiting</a>.</> },
+  { name: "request_delay", type: "float", default: "0.0", description: "Minimum seconds between requests to same domain." },
+]} />
+
+## robots.txt
+
+<PropTable rows={[
+  { name: "respect_robots", type: "bool", default: "True", description: <>Fetch and apply robots.txt. <a href="/docs/concepts/robots-txt">robots.txt</a>.</> },
+]} />
+
+## JavaScript rendering (requires `[browser]`)
+
+<PropTable rows={[
+  { name: "render_js", type: "bool", default: "False", description: <>Use Playwright. <a href="/docs/concepts/javascript-rendering">JS rendering</a>.</> },
+  { name: "headless", type: "bool", default: "True", description: "Run browser without a UI window." },
+  { name: "wait_strategy", type: "WaitStrategy", default: "NETWORKIDLE", description: "load | domcontentloaded | networkidle | commit." },
+  { name: "wait_selector", type: "str | None", default: "None", description: "CSS selector to wait for." },
+  { name: "browser_type", type: "Literal", default: "chromium", description: "chromium | firefox | webkit." },
+  { name: "browser_pool_size", type: "int", default: "3", description: "Pooled browser contexts (1..10)." },
+  { name: "screenshot_dir", type: "str | None", default: "None", description: "Debug screenshots directory." },
+]} />
+
+## URL filtering (separate from `CrawlConfig`)
+
+Pass to `Crawler(url_filter=...)`. See [`CombinedFilter.from_config`](/docs/api/filters).
+
+<PropTable rows={[
+  { name: "include_patterns", type: "list[str]", description: "Glob/regex/substring; URL must match at least one." },
+  { name: "exclude_patterns", type: "list[str]", description: "Glob/regex/substring; URL fails on any match." },
+  { name: "skip_extensions", type: "list[str]", description: "File extensions to skip (no leading dot)." },
+  { name: "allowed_domains", type: "list[str]", description: "Domain allowlist with subdomain support." },
+]} />
+
+## Checkpointing (separate from `CrawlConfig`)
+
+Pass to `Crawler(checkpoint_manager=...)`. See [`CheckpointManager`](/docs/api/checkpoint).
+
+<PropTable rows={[
+  { name: "uri", type: "str", description: "Path or s3://bucket/key." },
+  { name: "flush_interval", type: "int", default: "10", description: "Pages between state writes." },
+  { name: "resume", type: "bool (crawl arg)", default: "False", description: "Set on Crawler.crawl() to load from checkpoint." },
+]} />
+
+## CLI flag mapping
+
+| CLI flag                | Config field                  |
+| ----------------------- | ----------------------------- |
+| `--depth, -d`           | `max_depth`                   |
+| `--max-pages, -n`       | `max_pages`                   |
+| `--concurrency, -c`     | `max_concurrency`             |
+| `--user-agent`          | `user_agent`                  |
+| `--follow-external`     | `follow_external`             |
+| `--save-html`           | `save_html`                   |
+| `--rate-limit, -r`      | `requests_per_second`         |
+| `--request-delay`       | `request_delay`               |
+| `--no-robots`           | `respect_robots=False`        |
+| `--render-js, --browser`| `render_js`                   |
+| `--wait-for`            | `wait_strategy`               |
+| `--wait-selector`       | `wait_selector`               |
+| `--browser-type`        | `browser_type`                |
+| `--no-headless`         | `headless=False`              |
+| `--include`             | `url_filter.include_patterns` |
+| `--exclude`             | `url_filter.exclude_patterns` |
+| `--skip-extensions`     | `url_filter.skip_extensions`  |
+| `--checkpoint`          | `CheckpointManager.from_uri`  |
+| `--checkpoint-interval` | `flush_interval`              |
+| `--resume`              | `crawler.crawl(resume=True)`  |
+
+## See also
+
+- [`CrawlConfig`](/docs/api/config) — the Pydantic model itself.
+- [CLI: yoink crawl](/docs/cli/crawl) — flag-by-flag.

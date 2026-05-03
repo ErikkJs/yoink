@@ -1,0 +1,162 @@
+---
+title: AI training data
+description: Build a clean, deduplicated text dataset suitable for fine-tuning or RAG.
+category: Examples
+---
+
+This is the canonical use case yoink was built for: turn a documentation site (or any structured public source) into a clean JSONL ready to feed into a training pipeline or vector database.
+
+<Callout variant="info" title="The corresponding file in the repo">
+[`examples/ai_training_data.py`](https://github.com/ErikkJs/yoink/blob/main/examples/ai_training_data.py) is a simpler starter (length-filter + JSONL + stats, no dedup or token budgeting). The script below adds hash-based dedup, length clipping, and a token-count estimate — copy whichever matches your needs.
+</Callout>
+
+## The pipeline
+
+<Pipeline
+  steps={[
+    { label: "crawl", hint: "Crawler · 5 RPS" },
+    { label: "filter", hint: "extension + URL patterns" },
+    { label: "dedupe", hint: "sha256 of clean text" },
+    { label: "length-clip", hint: "min 500 · max 50k chars" },
+    { label: "JSONL", hint: "one record per page" },
+  ]}
+/>
+
+## Script
+
+```python
+import asyncio
+import hashlib
+import json
+from pathlib import Path
+
+from yoink import Crawler, CrawlConfig
+from yoink.filters import CombinedFilter
+
+MIN_TEXT_CHARS = 500
+MAX_TEXT_CHARS = 50_000
+
+async def build_dataset(start_url: str, output: Path):
+    config = CrawlConfig(
+        max_depth=3,
+        max_pages=10_000,
+        max_concurrency=15,
+        requests_per_second=5.0,
+        extract_text=True,
+        save_html=False,         # we don't need it
+        respect_robots=True,     # always
+    )
+
+    url_filter = CombinedFilter.from_config(
+        skip_extensions=["pdf", "zip", "exe", "jpg", "png", "gif", "mp4"],
+        exclude_patterns=["*/print/*", "*/edit/*", r".*\?diff=.*"],
+    )
+
+    crawler = Crawler(config=config, url_filter=url_filter)
+    pages = await crawler.crawl(start_url)
+
+    # Dedup by text hash (different URLs, same content)
+    seen_hashes: set[str] = set()
+    written = 0
+
+    with open(output, "w", encoding="utf-8") as f:
+        for page in pages:
+            text = page.text
+            if not text:
+                continue
+            if len(text) < MIN_TEXT_CHARS:
+                continue
+            if len(text) > MAX_TEXT_CHARS:
+                text = text[:MAX_TEXT_CHARS]
+
+            h = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            if h in seen_hashes:
+                continue
+            seen_hashes.add(h)
+
+            record = {
+                "id": h[:16],
+                "source_url": page.url,
+                "title": page.title,
+                "text": text,
+                "tokens_approx": len(text) // 4,
+                "depth": page.depth,
+            }
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            written += 1
+
+    return {
+        "crawled": len(pages),
+        "written": written,
+        "deduped": len(pages) - written,
+    }
+
+if __name__ == "__main__":
+    result = asyncio.run(build_dataset(
+        "https://docs.example.com",
+        Path("training_data.jsonl"),
+    ))
+    print(f"Crawled: {result['crawled']}")
+    print(f"Written: {result['written']}")
+    print(f"Deduped: {result['deduped']}")
+```
+
+## What this does
+
+1. **Polite crawl** — 5 RPS, respects robots.txt, stays on the start domain.
+2. **Skip binaries** — no PDFs, images, or zips muddying the text dataset.
+3. **Skip noise** — `print/`, `edit/`, and `?diff=` URLs typically duplicate canonical content.
+4. **Filter on length** — drop pages with too little (chrome-only) or too much (likely concatenated-everything-pages) text.
+5. **Dedupe by hash** — different URLs with identical extracted text get collapsed.
+6. **Token estimate** — a rough `len(text) // 4` works well enough for budgeting.
+
+## Loading it back
+
+```python
+import json
+
+records = [json.loads(line) for line in open("training_data.jsonl")]
+print(f"{len(records)} records, {sum(r['tokens_approx'] for r in records):,} approx tokens")
+```
+
+## Variations
+
+### For a vector index (chunking)
+
+```python
+from textwrap import wrap
+
+def chunks(text: str, size: int = 1000):
+    return wrap(text, size, replace_whitespace=False, drop_whitespace=False)
+
+# in the loop:
+for i, chunk in enumerate(chunks(text)):
+    record = {
+        "id": f"{h[:16]}-{i}",
+        "source_url": page.url,
+        "chunk_index": i,
+        "text": chunk,
+    }
+    ...
+```
+
+### Including metadata for filtering
+
+```python
+record = {
+    "id": h[:16],
+    "source_url": page.url,
+    "title": page.title,
+    "text": text,
+    "description": page.metadata.get("description"),
+    "og_type": page.metadata.get("og:type"),
+    "depth": page.depth,
+    "crawled_at": page.crawled_at.isoformat(),
+}
+```
+
+## See also
+
+- [URL filtering concepts](/docs/concepts/url-filtering).
+- [`CrawlConfig`](/docs/api/config) — every knob.
+- [`Page`](/docs/api/page) — what's available on each record.

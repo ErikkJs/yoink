@@ -1,0 +1,115 @@
+---
+title: Installation
+description: Install yoink from source or PyPI, including optional extras for Parquet, S3, and JavaScript rendering.
+category: Getting started
+---
+
+yoink supports **Python 3.11+** and runs on Linux, macOS, and Windows.
+
+## Standard install
+
+yoink is currently distributed from source on GitHub:
+
+```bash
+git clone https://github.com/ErikkJs/yoink
+cd yoink
+pip install -e .
+```
+
+If you use [Poetry](https://python-poetry.org/), the project ships a `pyproject.toml`:
+
+```bash
+git clone https://github.com/ErikkJs/yoink
+cd yoink
+poetry install
+```
+
+<Callout variant="warning" title="Don't run `pip install yoink`">
+The bare name `yoink` on PyPI is taken by an unrelated package (a podcast downloader). Until this crawler is published under a distinct distribution name, install from source as shown above. Running `pip install yoink` will fetch the wrong package.
+</Callout>
+
+You can also install directly from the GitHub URL without cloning:
+
+```bash
+pip install "git+https://github.com/ErikkJs/yoink.git"
+```
+
+## Optional extras
+
+yoink keeps heavy dependencies behind extras so the core stays lean.
+
+| Extra      | Adds                          | When you need it                                     |
+| ---------- | ----------------------------- | ---------------------------------------------------- |
+| `parquet`  | `pyarrow`                     | Writing crawl output as columnar Parquet files       |
+| `s3`       | `aioboto3`                    | Checkpointing to AWS S3 (Lambda, EC2, ECS workloads) |
+| `browser`  | `playwright`                  | Rendering JavaScript-heavy sites and SPAs            |
+| `all`      | All of the above              | When you don't want to think about it                |
+
+```bash
+# Install with one extra (from a local clone)
+pip install -e ".[parquet]"
+
+# Multiple extras
+pip install -e ".[s3,parquet]"
+
+# Everything
+pip install -e ".[all]"
+
+# Or from GitHub
+pip install "yoink[all] @ git+https://github.com/ErikkJs/yoink.git"
+```
+
+### Playwright browsers
+
+The `browser` extra installs the Playwright Python package, but you also need to download the actual browser binaries (Chromium / Firefox / WebKit):
+
+```bash
+pip install -e ".[browser]"
+playwright install chromium
+```
+
+<Callout variant="tip" title="CI / Docker">
+For containerized environments, use `playwright install --with-deps chromium` to install both the browser and the system libraries it needs.
+</Callout>
+
+### S3 credentials
+
+The `s3` extra brings in `aioboto3`, but the SDK still needs credentials. Any of these work:
+
+```bash
+# 1. AWS CLI profile (recommended for local development)
+aws configure
+
+# 2. Environment variables
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_DEFAULT_REGION=us-east-1
+
+# 3. IAM role (automatic on EC2 / ECS / Lambda)
+# No configuration needed
+```
+
+Minimum IAM permissions for the bucket you're checkpointing to:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:HeadObject"],
+      "Resource": "arn:aws:s3:::your-bucket-name/*"
+    }
+  ]
+}
+```
+
+## Verify the install
+
+```bash
+yoink version
+# yoink version 0.1.0
+# The public data crawler.
+```
+
+You're ready. Head to the [quickstart](/docs/quickstart).

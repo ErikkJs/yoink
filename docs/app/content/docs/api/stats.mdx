@@ -1,0 +1,122 @@
+---
+title: CrawlStats
+description: Compute, format, and export statistics from a crawl — depth distribution, top domains, content quality.
+category: Python API
+---
+
+`CrawlStats` analyzes a list of `Page` objects (or loads them from a file) and produces summary metrics. It powers the `yoink stats` CLI but is also fine to use programmatically.
+
+## Import
+
+```python
+from yoink.stats import CrawlStats
+```
+
+## Constructing
+
+```python
+# From a list of Page objects (e.g., right after a crawl)
+stats = CrawlStats(pages)
+
+# From a saved file (.json or .jsonl)
+stats = CrawlStats.from_file(Path("crawl_output.jsonl"))
+```
+
+## Methods
+
+<PropTable rows={[
+  { name: "compute()", type: "→ dict[str, Any]", description: "Compute and return all metrics as a dict. Cached after first call." },
+  { name: "format_summary()", type: "→ str", description: "Return a multi-line human-readable summary." },
+  { name: "export_csv(output_path)", type: "→ None", description: "Write summary stats and top-domain breakdown to a CSV file." },
+  { name: "from_file(path)", type: "classmethod → CrawlStats", description: "Load pages from .json or .jsonl and return a CrawlStats." },
+]} />
+
+## What `compute()` returns
+
+```python
+{
+    "total_pages": 87,
+    "total_links": 1243,
+    "total_text_size": 422291,         # bytes
+    "total_html_size": 0,              # 0 if save_html=False
+    "avg_links_per_page": 14.29,
+    "avg_text_size": 4853.92,
+    "avg_html_size": 0,
+    "max_depth": 2,
+    "pages_by_depth": { 0: 1, 1: 24, 2: 62 },
+    "unique_domains": 1,
+    "top_domains": [{ "domain": "docs.example.com", "count": 87 }],
+    "status_codes": { 200: 87 },
+    "pages_with_text": 85,
+    "pages_with_title": 87,
+    "pages_with_metadata": 73,
+    "text_length_min": 142,
+    "text_length_median": 3891,
+    "text_length_max": 28442,
+}
+```
+
+<Callout variant="warning" title="Empty input is a special case">
+If you pass an empty list of pages, `compute()` short-circuits and returns just `{"total_pages": 0}` — none of the other keys above will be present. If you read `data["pages_with_text"]` blindly, that'll `KeyError` on an empty crawl. Check `total_pages > 0` first or use `data.get(...)`.
+</Callout>
+
+## Examples
+
+### After a crawl
+
+```python
+from yoink import Crawler, CrawlConfig
+from yoink.stats import CrawlStats
+
+async def main():
+    crawler = Crawler(CrawlConfig())
+    pages = await crawler.crawl("https://example.com")
+
+    stats = CrawlStats(pages)
+    print(stats.format_summary())
+```
+
+### From a saved file
+
+```python
+from pathlib import Path
+from yoink.stats import CrawlStats
+
+stats = CrawlStats.from_file(Path("crawl_output.jsonl"))
+data = stats.compute()
+
+print(f"Got {data['total_pages']} pages across {data['unique_domains']} domains")
+print(f"Median page text: {data['text_length_median']} chars")
+```
+
+### Filtering by content quality
+
+```python
+data = stats.compute()
+text_share = data["pages_with_text"] / data["total_pages"]
+
+if text_share < 0.5:
+    print("⚠ Less than half the pages had extractable text — site may be JS-heavy")
+```
+
+### Export
+
+```python
+stats.export_csv(Path("crawl_stats.csv"))
+```
+
+The CSV has two sections:
+
+```
+Metric,Value
+Total Pages,87
+Total Links,1243
+...
+
+Top Domains,Count
+docs.example.com,87
+```
+
+## See also
+
+- The CLI version: [`yoink stats`](/docs/cli/stats).

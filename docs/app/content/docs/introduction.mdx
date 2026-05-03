@@ -1,0 +1,49 @@
+---
+title: Introduction
+description: A fast, async Python web crawler for extracting AI-ready data from public websites.
+category: Getting started
+---
+
+**yoink** is a focused, well-tested Python crawler that turns public websites into clean, structured data. It's the tool you reach for when you want to build a training set, mirror a documentation site, audit an API surface, or run a research crawl — without hand-rolling the boring parts.
+
+## What's in the box
+
+- **Async architecture** built on `aiohttp` with configurable concurrency
+- **Clean text extraction** via [trafilatura](https://github.com/adbar/trafilatura) — no nav chrome, no boilerplate
+- **Per-domain rate limiting** using a token bucket with burst support
+- **robots.txt compliance** out of the box, including `Crawl-delay` and `Sitemap` directives
+- **JavaScript rendering** via Playwright for SPAs (optional extra)
+- **Resumable crawls** with append-only checkpoints to disk or S3
+- **URL filtering** with glob, regex, and extension matching
+- **First-class output formats** — JSON, JSONL, Parquet, plain text
+- **Built-in stats** for inspecting what you yoinked
+
+## Design principles
+
+<Callout variant="tip" title="Boring is good">
+yoink is intentionally small (~3,200 lines of Python, 134 passing tests). The hard parts — HTTP, HTML parsing, text extraction, browser automation — are delegated to libraries that have been battle-tested for years.
+</Callout>
+
+1. **Polite by default.** Respects `robots.txt`, identifies itself, rate-limits per domain, stays on the start domain.
+2. **Pluggable, not magic.** Swap fetchers, storage backends, filters, and extractors without forking the crawler.
+3. **Resumable, always.** Long crawls die. Lambda runs time out. yoink should pick up where it left off.
+4. **Output is the product.** Clean JSONL/Parquet that drops straight into your pipeline beats a fancy CLI.
+
+## When to use yoink
+
+✅ **Good fit**
+- You want a few hundred to a few hundred thousand public pages, fast.
+- You're feeding an LLM, building an embedding index, or training a model.
+- You're mirroring documentation, doing SEO research, or running content analysis.
+- You're shipping a Lambda job that needs to survive restarts.
+
+❌ **Not the right tool**
+- You need to log in, solve CAPTCHAs, or scrape at adversarial sites that explicitly forbid it.
+- You want a UI-driven scraping product. yoink is a library + CLI.
+- You need millions of pages a day at sustained throughput. Look at distributed systems like Apache Nutch.
+
+## Where to next
+
+- [Installation](/docs/installation) — `pip install yoink` and optional extras.
+- [Quickstart](/docs/quickstart) — your first crawl in 30 seconds.
+- [Architecture](/docs/concepts/architecture) — how the moving parts fit together.

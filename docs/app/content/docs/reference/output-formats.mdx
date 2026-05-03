@@ -1,0 +1,141 @@
+---
+title: Output formats
+description: JSON, JSONL, Parquet, and plain text — exact shapes, when to use each.
+category: Reference
+---
+
+yoink writes crawl results in four formats. They all carry the same `Page` data, but differ in shape, streamability, and compression.
+
+## Format comparison
+
+| Format    | Best for                  | Streamable | Compressed | Extras needed |
+| --------- | ------------------------- | ---------- | ---------- | ------------- |
+| `jsonl`   | AI/ML, large datasets     | yes (rows) | no         | —             |
+| `json`    | Small datasets, debugging | no         | no         | —             |
+| `parquet` | Analytics, pandas         | yes (rows) | snappy     | `[parquet]`   |
+| `text`    | Eyeballing                | no         | no         | —             |
+
+## JSON
+
+A single JSON array. Easy to read, easy to break: large arrays must be loaded entirely into memory.
+
+```bash
+yoink crawl https://example.com -f json -o data.json
+```
+
+```json
+[
+  {
+    "url": "https://example.com",
+    "title": "Example Domain",
+    "text": "...",
+    "html": null,
+    "links": ["https://example.com/about"],
+    "metadata": {},
+    "crawled_at": "2026-05-03T12:00:00",
+    "status_code": 200,
+    "depth": 0
+  },
+  { "url": "https://example.com/about", "...": "..." }
+]
+```
+
+## JSONL (recommended)
+
+Newline-delimited JSON. One `Page` per line. Streamable and `grep`-friendly.
+
+```bash
+yoink crawl https://example.com -f jsonl -o data.jsonl
+```
+
+```jsonl
+{"url": "https://example.com", "title": "Example Domain", ...}
+{"url": "https://example.com/about", "title": "About", ...}
+```
+
+Reading with the standard library:
+
+```python
+import json
+from yoink import Page
+
+with open("data.jsonl") as f:
+    pages = [Page.model_validate_json(line) for line in f]
+```
+
+Streaming (don't load it all):
+
+```python
+def iter_pages(path):
+    with open(path) as f:
+        for line in f:
+            yield Page.model_validate_json(line)
+
+for page in iter_pages("data.jsonl"):
+    process(page)
+```
+
+## Parquet
+
+Columnar storage. Smaller files, faster analytical queries. Requires `pip install "yoink[parquet]"`.
+
+```bash
+yoink crawl https://example.com -f parquet -o data.parquet
+```
+
+The schema is **flattened** — `links` becomes `num_links`, `metadata` becomes a JSON-encoded string. This is intentional: it keeps the file portable and analytical queries fast.
+
+<ParquetSchema showOmissions={false} />
+
+Compression is `snappy` for fast read/write. Read with pandas / pyarrow / DuckDB:
+
+```python
+import pandas as pd
+df = pd.read_parquet("data.parquet")
+
+# Or DuckDB for SQL
+import duckdb
+duckdb.sql("SELECT depth, count(*) FROM 'data.parquet' GROUP BY depth").show()
+```
+
+<Callout variant="info" title="Need the link list or raw HTML?">
+Parquet drops the per-page `links` array (only `num_links` is preserved) and never writes `html` even when `save_html=True`. If you need either, use JSONL.
+</Callout>
+
+## Text
+
+Plain text dump. Good for archival and quick visual inspection.
+
+```bash
+yoink crawl https://example.com -f text -o data.txt
+```
+
+Format:
+
+```
+URL: https://example.com
+Title: Example Domain
+--------------------------------------------------------------------------------
+This domain is for use in illustrative examples in documents.
+
+================================================================================
+
+URL: https://example.com/about
+Title: About
+--------------------------------------------------------------------------------
+...
+```
+
+This format is one-way — you can't reliably load it back into `Page` objects. Use JSONL for round-tripping.
+
+## Choosing
+
+- **AI training / RAG indexing?** JSONL.
+- **Pandas / DuckDB / Athena?** Parquet.
+- **Throwaway one-shot?** JSON.
+- **Quick read?** Text.
+
+## See also
+
+- [`Writer`](/docs/api/writers) — programmatic output.
+- [`Page`](/docs/api/page) — the underlying data shape.

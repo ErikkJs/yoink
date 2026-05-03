@@ -1,0 +1,152 @@
+---
+title: Crawler
+description: The main async web crawler — wires together the fetcher, parser, scheduler, and rate limiter.
+category: Python API
+---
+
+`yoink.Crawler` is the entry point for programmatic use. It owns the worker pool and orchestrates a crawl from a start URL.
+
+## Import
+
+```python
+from yoink import Crawler, CrawlConfig
+```
+
+## Constructor
+
+```python
+Crawler(
+    config: CrawlConfig | None = None,
+    url_filter: CombinedFilter | None = None,
+    checkpoint_manager: CheckpointManager | None = None,
+)
+```
+
+<PropTable rows={[
+  { name: "config", type: "CrawlConfig | None", default: "CrawlConfig()", description: "Configuration for crawler behavior. See CrawlConfig reference." },
+  { name: "url_filter", type: "CombinedFilter | None", description: "Optional filter for include/exclude patterns and domain matching." },
+  { name: "checkpoint_manager", type: "CheckpointManager | None", description: "Optional checkpoint manager. If set, pages stream to disk/S3 as they're crawled." },
+]} />
+
+## Methods
+
+### `crawl(start_url, resume=False)`
+
+Crawl a website starting from `start_url`.
+
+```python
+async def crawl(
+    self,
+    start_url: str,
+    resume: bool = False,
+) -> list[Page]
+```
+
+<PropTable rows={[
+  { name: "start_url", type: "str", required: true, description: "The starting URL. Must include scheme." },
+  { name: "resume", type: "bool", default: "False", description: "If True and a checkpoint_manager is set, restore visited URLs and queue from checkpoint before crawling." },
+]} />
+
+**Returns:** `list[Page]` — every page yoinked. Note that pages are also accumulated in `crawler.pages`, which you can read mid-crawl from another coroutine.
+
+### `crawl_with_progress(start_url, resume=False)`
+
+Same as `crawl()` but renders a `tqdm` progress bar to stderr. Used by the CLI.
+
+```python
+async def crawl_with_progress(
+    self,
+    start_url: str,
+    resume: bool = False,
+) -> list[Page]
+```
+
+## Attributes
+
+<PropTable rows={[
+  { name: "config", type: "CrawlConfig", description: "The active configuration." },
+  { name: "pages", type: "list[Page]", description: "Pages accumulated so far. Mutated during the crawl." },
+  { name: "scheduler", type: "Scheduler", description: "The URL queue. Holds visited and filtered sets." },
+  { name: "rate_limiter", type: "RateLimiter", description: "Per-domain rate limiter." },
+  { name: "robots_checker", type: "RobotsChecker | None", description: "Set when respect_robots=True." },
+  { name: "checkpoint_manager", type: "CheckpointManager | None", description: "The checkpoint manager passed to the constructor." },
+]} />
+
+## Examples
+
+### Minimal crawl
+
+```python
+import asyncio
+from yoink import Crawler
+
+async def main():
+    crawler = Crawler()
+    pages = await crawler.crawl("https://example.com")
+    return pages
+
+asyncio.run(main())
+```
+
+### With config and filter
+
+```python
+from yoink import Crawler, CrawlConfig
+from yoink.filters import CombinedFilter
+
+config = CrawlConfig(
+    max_depth=3,
+    max_pages=500,
+    requests_per_second=5.0,
+    render_js=True,
+)
+
+url_filter = CombinedFilter.from_config(
+    include_patterns=["*/api/*"],
+    skip_extensions=["pdf", "zip"],
+)
+
+crawler = Crawler(config=config, url_filter=url_filter)
+pages = await crawler.crawl("https://docs.example.com")
+```
+
+### Mid-crawl progress (custom)
+
+```python
+import asyncio
+from yoink import Crawler, CrawlConfig
+
+async def report(crawler: Crawler):
+    while True:
+        await asyncio.sleep(2)
+        print(f"...crawled {len(crawler.pages)} pages")
+
+async def main():
+    crawler = Crawler(CrawlConfig(max_pages=1000))
+    reporter = asyncio.create_task(report(crawler))
+    try:
+        return await crawler.crawl("https://example.com")
+    finally:
+        reporter.cancel()
+
+asyncio.run(main())
+```
+
+### With checkpointing
+
+See [Checkpointing](/docs/concepts/checkpointing) and [`CheckpointManager`](/docs/api/checkpoint) for full coverage.
+
+```python
+from yoink import Crawler, CrawlConfig, CheckpointManager
+
+checkpoint = CheckpointManager.from_uri("./crawl.jsonl")
+crawler = Crawler(config=CrawlConfig(), checkpoint_manager=checkpoint)
+
+pages = await crawler.crawl("https://example.com", resume=True)
+```
+
+## See also
+
+- [`CrawlConfig`](/docs/api/config) — every knob.
+- [`Page`](/docs/api/page) — the per-page output type.
+- [Architecture](/docs/concepts/architecture) — how the components fit.

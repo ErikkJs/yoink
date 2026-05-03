@@ -1,0 +1,128 @@
+---
+title: JavaScript rendering
+description: Use Playwright to render single-page apps and sites whose content lives behind JS execution.
+category: Concepts
+---
+
+The default `Fetcher` is a fast async HTTP client. It works perfectly for traditional sites, documentation, blogs, and most APIs. But if a site renders content client-side — React/Vue/Svelte SPAs, infinite-scroll pages, content that requires JS execution — you need a real browser.
+
+That's what the **Playwright fetcher** is for.
+
+## Enable JS rendering
+
+Install the optional `browser` extra and download a browser binary:
+
+```bash
+pip install "yoink[browser]"
+playwright install chromium
+```
+
+Then turn it on with `--render-js` (CLI) or `render_js=True` (Python):
+
+```bash
+yoink crawl https://spa-site.com --render-js
+```
+
+```python
+config = CrawlConfig(
+    render_js=True,
+    browser_type="chromium",      # or firefox, webkit
+    wait_strategy="networkidle",  # or load, domcontentloaded, commit
+    headless=True,
+)
+```
+
+## How it works
+
+When `render_js=True`, `create_fetcher()` returns a `PlaywrightFetcher` instead of the standard HTTP `Fetcher`. The crawler is otherwise unchanged — same scheduler, same rate limiter, same robots checker.
+
+<FetcherDispatch />
+
+<Callout variant="info" title="Graceful fallback when Playwright isn't installed">
+If you set `render_js=True` but the `playwright` package isn't importable, `create_fetcher()` emits a `UserWarning` and silently falls back to the HTTP `Fetcher`. The crawl still runs — you just won't get JS rendering. Install with `pip install "yoink[browser]" && playwright install chromium` to actually get the browser.
+</Callout>
+
+## Wait strategies
+
+Playwright's notion of "loaded" is different from a plain HTTP fetch. Pick the strategy that matches what you need:
+
+<PropTable rows={[
+  { name: "load", type: "string", description: "Wait for the load event. Equivalent to window.onload firing." },
+  { name: "domcontentloaded", type: "string", description: "Wait for the DOM to parse. Doesn't wait for images, fonts, or stylesheets." },
+  { name: "networkidle", type: "string", default: "default", description: "Wait until there are no network connections for at least 500ms. Best for SPAs that fetch data after mount." },
+  { name: "commit", type: "string", description: "Wait for navigation to commit (response headers received). Fastest, but content may not be ready." },
+]} />
+
+For sites that render content after `networkidle` (rare, but it happens), use a CSS selector to wait for a specific element:
+
+```bash
+yoink crawl https://spa.com --render-js --wait-selector ".article-content"
+```
+
+```python
+config = CrawlConfig(
+    render_js=True,
+    wait_selector=".article-content",
+)
+```
+
+## Browser pooling
+
+Launching a browser is expensive. yoink reuses a pool of browser **contexts** (isolated cookie/localStorage scopes within a single browser process):
+
+```python
+config = CrawlConfig(
+    render_js=True,
+    browser_pool_size=3,  # default
+)
+```
+
+Workers borrow a context, render the page, and return it. Three contexts is a good default for `max_concurrency=10` — enough that workers rarely block on the pool, few enough that memory stays reasonable.
+
+## Browser choice
+
+| Browser   | When to pick it                                                  |
+| --------- | ---------------------------------------------------------------- |
+| chromium  | Default. Best site compatibility, fastest startup.               |
+| firefox   | If you need to test against Firefox-specific behavior.           |
+| webkit    | Closest approximation of Safari rendering.                       |
+
+For data extraction, **Chromium is almost always the right choice.** The other engines exist for testing/cross-browser validation.
+
+## Debugging
+
+Run with a visible browser to watch what's happening:
+
+```bash
+yoink crawl https://spa.com --render-js --no-headless
+```
+
+For scripted runs that crash mysteriously, point Playwright at a screenshot directory:
+
+```python
+config = CrawlConfig(
+    render_js=True,
+    screenshot_dir="./debug-screenshots",
+)
+```
+
+Each fetched page gets a PNG dropped in that directory, named `screenshot_<8-char-md5>.png` (e.g., `screenshot_a1b2c3d4.png`) where the 8 chars are the first 8 hex digits of the MD5 of the URL. Collisions are extremely rare in practice but possible on huge crawls.
+
+## Cost & throughput
+
+JS rendering is **10–50× slower** than plain HTTP fetching. A page that takes 200ms over HTTP might take 3–8 seconds with Playwright (network + render + wait). Plan accordingly:
+
+- Lower `max_concurrency` (try 5 instead of 20).
+- Use `wait_strategy="domcontentloaded"` if you don't need post-mount data.
+- Keep `--render-js` off for the parts of your crawl that don't need it. yoink doesn't (yet) auto-detect; that's a per-target decision.
+
+## When NOT to use it
+
+If `curl https://site.com` returns the content you want, you don't need a browser. The default `Fetcher` is faster, lighter, and infinitely more reliable.
+
+Try the HTTP fetcher first. Switch only when content is missing.
+
+## See also
+
+- [`CrawlConfig`](/docs/api/config) — full list of JS-related options.
+- The Playwright fetcher source: <a href="https://github.com/ErikkJs/yoink/blob/main/src/yoink/playwright_fetcher.py">src/yoink/playwright_fetcher.py</a>.

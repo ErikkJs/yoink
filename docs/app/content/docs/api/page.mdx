@@ -1,0 +1,110 @@
+---
+title: Page
+description: The per-page output type — URL, title, extracted text, links, metadata, status code, depth.
+category: Python API
+---
+
+`Page` is the Pydantic model representing one crawled URL.
+
+## Import
+
+```python
+from yoink import Page
+# or
+from yoink.models import Page
+```
+
+## Fields
+
+<PropTable rows={[
+  { name: "url", type: "str", required: true, description: "The URL that was queued and fetched. yoink does not currently rewrite this to the post-redirect URL — if you need the final URL, inspect the response headers via a custom Fetcher subclass." },
+  { name: "title", type: "str | None", description: "The <title> tag content, if present." },
+  { name: "text", type: "str | None", description: "Clean extracted text from trafilatura. None if extract_text=False or extraction failed." },
+  { name: "html", type: "str | None", description: "Raw HTML. Only populated when save_html=True." },
+  { name: "links", type: "list[str]", default: "[]", description: "Outbound links discovered on the page (absolute URLs)." },
+  { name: "metadata", type: "dict[str, str]", default: "{}", description: "OpenGraph / Twitter / standard meta tags." },
+  { name: "crawled_at", type: "datetime", description: "UTC timestamp when the page was fetched." },
+  { name: "status_code", type: "int", default: "200", description: "HTTP response status code." },
+  { name: "depth", type: "int", default: "0", description: "Link-hop distance from the start URL." },
+]} />
+
+## Methods
+
+`Page` inherits all standard Pydantic v2 methods:
+
+```python
+page.model_dump()           # → dict
+page.model_dump(mode="json") # → JSON-safe dict (datetimes as strings)
+page.model_dump_json()       # → str
+Page.model_validate(data)    # construct from dict
+Page.model_validate_json(s)  # construct from JSON string
+```
+
+## Examples
+
+### Inspecting after a crawl
+
+```python
+pages = await crawler.crawl("https://example.com")
+
+for page in pages:
+    print(f"[{page.status_code}] depth={page.depth} {page.url}")
+    print(f"  title: {page.title or '(none)'}")
+    print(f"  text:  {len(page.text or '')} chars, {len(page.links)} links")
+    if "og:image" in page.metadata:
+        print(f"  image: {page.metadata['og:image']}")
+```
+
+### Reading pages back from JSONL
+
+```python
+import json
+from yoink import Page
+
+pages: list[Page] = []
+with open("crawl_output.jsonl") as f:
+    for line in f:
+        pages.append(Page.model_validate_json(line))
+
+print(f"Loaded {len(pages)} pages")
+```
+
+### Filtering for content quality
+
+```python
+# Keep only pages with at least 500 chars of clean text
+substantial = [p for p in pages if p.text and len(p.text) >= 500]
+
+# Group by depth
+from collections import defaultdict
+by_depth = defaultdict(list)
+for p in pages:
+    by_depth[p.depth].append(p)
+```
+
+## JSON shape
+
+When serialized:
+
+```json
+{
+  "url": "https://example.com/about",
+  "title": "About Example",
+  "text": "Example is a domain established for...",
+  "html": null,
+  "links": ["https://example.com/", "https://example.com/contact"],
+  "metadata": {
+    "description": "About page",
+    "og:title": "About Example",
+    "og:type": "website"
+  },
+  "crawled_at": "2026-05-03T12:34:56.789012",
+  "status_code": 200,
+  "depth": 1
+}
+```
+
+## See also
+
+- [Output formats](/docs/reference/output-formats) — how pages are serialized to JSON, JSONL, Parquet, text.
+- [`Writer`](/docs/api/writers) — how to write pages to files programmatically.

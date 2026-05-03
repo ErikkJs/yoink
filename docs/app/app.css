@@ -1,0 +1,448 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Warm near-black with tan/sepia undertone — not pure neutral */
+    --background: 30 9% 6%;
+    --foreground: 40 12% 96%;
+    --card: 30 8% 8%;
+    --card-foreground: 40 12% 96%;
+    --popover: 30 8% 9%;
+    --popover-foreground: 40 12% 96%;
+    --primary: 40 12% 96%;
+    --primary-foreground: 30 9% 6%;
+    --secondary: 30 6% 14%;
+    --secondary-foreground: 40 12% 96%;
+    --muted: 30 6% 11%;
+    --muted-foreground: 30 8% 64%;
+    --accent: 30 6% 16%;
+    --accent-foreground: 40 12% 96%;
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 40 12% 96%;
+    --border: 30 6% 14%;
+    --border-strong: 30 6% 22%;
+    --input: 30 6% 14%;
+    --ring: 78 95% 55%;
+    --radius: 0.5rem;
+
+    /* Brand accents */
+    --lime: 78 95% 55%;          /* hi-vis acid lime — the yoink color */
+    --lime-bright: 78 95% 65%;
+    --lime-dim: 78 60% 45%;
+    --amber: 35 92% 60%;
+    --cyan: 195 90% 65%;
+    --magenta: 330 80% 70%;
+    --code-bg: 30 10% 4%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    color-scheme: dark;
+  }
+  html,
+  body {
+    @apply bg-background text-foreground;
+  }
+  body {
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "ss01", "ss02";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: "JetBrains Mono Variable", ui-monospace, SFMono-Regular,
+      Menlo, Consolas, monospace;
+    font-feature-settings: "calt" 1, "ss01" 1, "ss02" 1, "zero" 1;
+  }
+  h1, h2, .display {
+    font-family: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+    font-variation-settings: "wdth" 100, "opsz" 96;
+  }
+  ::selection {
+    background: hsl(var(--lime) / 0.85);
+    color: hsl(var(--background));
+  }
+}
+
+/* ============================================
+   Decorative atmosphere
+   ============================================ */
+
+/* Animated grain overlay — applied to body, low opacity */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.025;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+.bg-mesh {
+  background-image:
+    radial-gradient(at 15% -10%, hsl(var(--lime) / 0.18) 0px, transparent 45%),
+    radial-gradient(at 90% 0%, hsl(var(--cyan) / 0.10) 0px, transparent 50%),
+    radial-gradient(at 50% 110%, hsl(var(--amber) / 0.06) 0px, transparent 50%);
+}
+
+.grid-pattern {
+  background-image:
+    linear-gradient(hsl(var(--border) / 0.5) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.5) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 30%, transparent 80%);
+}
+
+.scanline {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 3px,
+    hsl(var(--foreground) / 0.012) 3px,
+    hsl(var(--foreground) / 0.012) 4px
+  );
+  mask-image: linear-gradient(to bottom, black, transparent 70%);
+}
+
+.glow-lime {
+  box-shadow:
+    0 0 0 1px hsl(var(--lime) / 0.4),
+    0 0 24px -4px hsl(var(--lime) / 0.5),
+    0 0 60px -10px hsl(var(--lime) / 0.3);
+}
+
+/* ============================================
+   Prose (MDX content) styling
+   ============================================ */
+.prose-docs {
+  @apply text-foreground/90;
+  max-width: 100%;
+  line-height: 1.7;
+  /*
+   * Reading-width cap for prose — we set this so paragraphs/lists/headings
+   * stay at a comfortable line length even when the article column is wide
+   * (xl/2xl screens). Diagrams, code blocks, tables, and figures override
+   * this back to 100% below so they fill the full content column.
+   */
+  --reading-width: 75ch;
+}
+
+.prose-docs p,
+.prose-docs ul,
+.prose-docs ol,
+.prose-docs blockquote,
+.prose-docs h1,
+.prose-docs h2,
+.prose-docs h3,
+.prose-docs h4 {
+  max-width: var(--reading-width);
+}
+
+/* These structural elements always span the full article column */
+.prose-docs figure,
+.prose-docs pre,
+.prose-docs table,
+.prose-docs [data-rehype-pretty-code-figure],
+.prose-docs > div[role="figure"],
+.prose-docs > .full-bleed {
+  max-width: 100%;
+}
+
+.prose-docs p {
+  @apply my-5 text-[0.95rem];
+  font-feature-settings: "ss01", "ss02";
+}
+
+.prose-docs > :first-child {
+  @apply mt-0;
+}
+
+.prose-docs h1 {
+  @apply font-display text-4xl md:text-5xl font-bold tracking-tight mb-4 mt-0 text-foreground;
+  font-variation-settings: "wdth" 100;
+}
+
+.prose-docs h2 {
+  @apply font-display text-2xl md:text-[1.7rem] font-semibold tracking-tight mt-14 mb-5 text-foreground scroll-mt-24;
+  font-variation-settings: "wdth" 100;
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.prose-docs h2::before {
+  content: "§";
+  color: hsl(var(--lime));
+  font-family: "JetBrains Mono Variable", ui-monospace, monospace;
+  font-size: 0.7em;
+  font-weight: 400;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+
+.prose-docs h3 {
+  @apply text-lg md:text-xl font-semibold tracking-tight mt-10 mb-3 text-foreground scroll-mt-24;
+}
+
+.prose-docs h4 {
+  @apply text-base font-semibold mt-8 mb-2 text-foreground scroll-mt-24;
+}
+
+.prose-docs a {
+  @apply text-lime underline-offset-[5px] decoration-lime/30 underline transition-colors;
+}
+
+.prose-docs a:hover {
+  @apply decoration-lime;
+}
+
+.prose-docs strong {
+  @apply text-foreground font-semibold;
+}
+
+.prose-docs ul,
+.prose-docs ol {
+  @apply my-5 ml-1 space-y-2;
+  padding-left: 1.4rem;
+}
+
+.prose-docs ul {
+  list-style-type: none;
+}
+
+.prose-docs ul li {
+  position: relative;
+}
+
+.prose-docs ul li::before {
+  content: "▸";
+  position: absolute;
+  left: -1.2rem;
+  top: 0;
+  color: hsl(var(--lime));
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 0.85em;
+  line-height: 1.7;
+}
+
+.prose-docs ol {
+  list-style-type: decimal;
+}
+
+.prose-docs ol li::marker {
+  color: hsl(var(--lime));
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 0.85em;
+}
+
+.prose-docs blockquote {
+  @apply my-6 border-l-2 pl-4 italic text-muted-foreground;
+  border-color: hsl(var(--lime) / 0.6);
+}
+
+.prose-docs hr {
+  @apply my-12;
+  border: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    hsl(var(--border-strong)) 30%,
+    hsl(var(--border-strong)) 70%,
+    transparent
+  );
+}
+
+.prose-docs table {
+  @apply my-7 w-full text-sm border-collapse overflow-hidden rounded-lg;
+  border: 1px solid hsl(var(--border));
+}
+
+.prose-docs thead {
+  background: hsl(var(--muted) / 0.5);
+  border-bottom: 1px solid hsl(var(--border-strong));
+}
+
+.prose-docs th {
+  @apply text-left font-mono text-[0.7rem] uppercase tracking-[0.1em] text-muted-foreground py-2.5 px-4;
+}
+
+.prose-docs td {
+  @apply py-3 px-4 align-top;
+  border-bottom: 1px solid hsl(var(--border) / 0.6);
+}
+
+.prose-docs tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Inline code */
+.prose-docs :not(pre) > code {
+  @apply rounded px-[0.4em] py-[0.15em] text-[0.875em] font-medium;
+  background: hsl(var(--lime) / 0.08);
+  color: hsl(var(--lime));
+  border: 1px solid hsl(var(--lime) / 0.18);
+  font-feature-settings: "calt", "ss01";
+}
+
+.prose-docs strong code,
+.prose-docs h2 code,
+.prose-docs h3 code,
+.prose-docs h4 code {
+  font-size: 0.92em;
+}
+
+/* Code blocks (rehype-pretty-code output) */
+.prose-docs pre,
+.prose-docs [data-rehype-pretty-code-figure] pre {
+  @apply my-6 overflow-x-auto rounded-lg text-[0.85rem] leading-[1.65];
+  background-color: hsl(var(--code-bg)) !important;
+  border: 1px solid hsl(var(--border-strong));
+  padding: 1rem 0;
+}
+
+.prose-docs pre code {
+  @apply bg-transparent p-0 border-0 text-inherit;
+  display: grid;
+}
+
+.prose-docs [data-rehype-pretty-code-figure] {
+  @apply my-6;
+}
+
+.prose-docs [data-line] {
+  @apply px-4 border-l-2 border-transparent;
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.prose-docs [data-highlighted-line] {
+  background: hsl(var(--lime) / 0.07);
+  border-left-color: hsl(var(--lime));
+}
+
+.prose-docs [data-line-numbers] {
+  counter-reset: line;
+}
+
+.prose-docs [data-line-numbers] > [data-line]::before {
+  counter-increment: line;
+  content: counter(line);
+  display: inline-block;
+  width: 1.5rem;
+  margin-right: 1rem;
+  text-align: right;
+  color: hsl(var(--muted-foreground) / 0.5);
+}
+
+.prose-docs [data-rehype-pretty-code-title] {
+  @apply px-4 py-2 text-xs font-mono text-muted-foreground rounded-t-lg;
+  background-color: hsl(var(--muted) / 0.6);
+  border: 1px solid hsl(var(--border-strong));
+  border-bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.prose-docs [data-rehype-pretty-code-title]::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: hsl(var(--lime));
+  box-shadow: 0 0 6px hsl(var(--lime) / 0.6);
+}
+
+.prose-docs [data-rehype-pretty-code-title] + pre {
+  @apply rounded-t-none mt-0;
+}
+
+/* Anchor headings */
+.prose-docs h2 a.anchor,
+.prose-docs h3 a.anchor,
+.prose-docs h4 a.anchor {
+  @apply opacity-0 ml-2 text-lime no-underline;
+  transition: opacity 150ms ease;
+}
+
+.prose-docs h2:hover a.anchor,
+.prose-docs h3:hover a.anchor,
+.prose-docs h4:hover a.anchor {
+  @apply opacity-100;
+}
+
+/* ============================================
+   Scrollbar
+   ============================================ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border-strong));
+  border-radius: 999px;
+  border: 2px solid hsl(var(--background));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border-strong)) transparent;
+}
+
+/* ============================================
+   Utility components
+   ============================================ */
+@layer components {
+  /* Monospace metadata pill */
+  .meta-pill {
+    @apply inline-flex items-center gap-1.5 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground;
+  }
+
+  /* Live indicator dot */
+  .live-dot {
+    @apply relative inline-block w-1.5 h-1.5 rounded-full bg-lime;
+  }
+  .live-dot::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 999px;
+    background: hsl(var(--lime) / 0.4);
+    animation: live-pulse 1.6s ease-in-out infinite;
+  }
+
+  /* Numbered card label (01 ─ feature name) */
+  .card-numeral {
+    @apply font-mono text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground/80 inline-flex items-center gap-2;
+  }
+  .card-numeral::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, hsl(var(--border-strong)), transparent);
+    min-width: 20px;
+    margin-left: 4px;
+  }
+}

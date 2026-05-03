@@ -1,0 +1,127 @@
+---
+title: CrawlConfig
+description: Every knob — depth, concurrency, rate limit, robots, JS rendering, browser pool. Pydantic-validated.
+category: Python API
+---
+
+`CrawlConfig` is a Pydantic model that captures every dial you can turn. Validation runs on construction, so invalid combinations (negative depth, concurrency > 100) fail immediately.
+
+## Import
+
+```python
+from yoink import CrawlConfig
+from yoink.models import WaitStrategy
+```
+
+## Core settings
+
+<PropTable rows={[
+  { name: "max_depth", type: "int", default: "1", description: "Maximum link-hop distance from the start URL. Depth 0 = start URL only. Validated >= 0." },
+  { name: "max_pages", type: "int", default: "100", description: "Hard cap on pages crawled. Validated >= 1." },
+  { name: "max_concurrency", type: "int", default: "10", description: "Number of concurrent worker coroutines. Validated 1..100." },
+  { name: "user_agent", type: "str", default: "yoink/<ver> (+github)", description: "User-Agent header sent on every request." },
+  { name: "timeout", type: "int", default: "30", description: "Per-request timeout in seconds. Validated >= 1." },
+  { name: "follow_external", type: "bool", default: "False", description: "If False, drop links whose domain differs from the start URL's." },
+  { name: "extract_text", type: "bool", default: "True", description: "Run trafilatura on each page's HTML to populate Page.text." },
+  { name: "save_html", type: "bool", default: "False", description: "Persist the raw HTML on each Page record. Drastically increases output size." },
+]} />
+
+## robots.txt
+
+<PropTable rows={[
+  { name: "respect_robots", type: "bool", default: "True", description: "If True, fetch and apply robots.txt for every domain crawled." },
+]} />
+
+## Rate limiting
+
+<PropTable rows={[
+  { name: "requests_per_second", type: "float", default: "2.0", description: "Token bucket fill rate per domain. Validated 0.1..100.0." },
+  { name: "request_delay", type: "float", default: "0.0", description: "Minimum seconds between consecutive requests to the same domain. Validated >= 0." },
+]} />
+
+## JavaScript rendering
+
+Requires the `[browser]` extra.
+
+<PropTable rows={[
+  { name: "render_js", type: "bool", default: "False", description: "Use Playwright instead of the HTTP fetcher." },
+  { name: "headless", type: "bool", default: "True", description: "Run the browser headlessly (no UI window)." },
+  { name: "wait_strategy", type: "WaitStrategy", default: "NETWORKIDLE", description: "Page load completion signal. One of LOAD, DOMCONTENTLOADED, NETWORKIDLE, COMMIT." },
+  { name: "wait_selector", type: "str | None", default: "None", description: "Optional CSS selector to wait for after wait_strategy fires." },
+  { name: "browser_type", type: "Literal['chromium', 'firefox', 'webkit']", default: "chromium", description: "Playwright browser engine." },
+  { name: "browser_pool_size", type: "int", default: "3", description: "Number of pooled browser contexts. Validated 1..10." },
+  { name: "screenshot_dir", type: "str | None", default: "None", description: "If set, write a debug screenshot per page to this directory." },
+]} />
+
+## `WaitStrategy` enum
+
+```python
+from yoink.models import WaitStrategy
+
+WaitStrategy.LOAD              # "load"
+WaitStrategy.DOMCONTENTLOADED  # "domcontentloaded"
+WaitStrategy.NETWORKIDLE       # "networkidle"
+WaitStrategy.COMMIT            # "commit"
+```
+
+You can pass a string or an enum value:
+
+```python
+config = CrawlConfig(wait_strategy="networkidle")  # OK
+config = CrawlConfig(wait_strategy=WaitStrategy.NETWORKIDLE)  # also OK
+```
+
+## Examples
+
+### Minimal
+
+```python
+config = CrawlConfig(max_depth=2)
+```
+
+### Aggressive but polite
+
+```python
+config = CrawlConfig(
+    max_depth=4,
+    max_pages=10_000,
+    max_concurrency=20,
+    requests_per_second=10.0,
+    follow_external=False,
+)
+```
+
+### SPA crawl with debug screenshots
+
+```python
+from yoink.models import WaitStrategy
+
+config = CrawlConfig(
+    render_js=True,
+    browser_type="chromium",
+    wait_strategy=WaitStrategy.NETWORKIDLE,
+    wait_selector=".app-content",
+    headless=True,
+    browser_pool_size=5,
+    screenshot_dir="./debug",
+)
+```
+
+### Loading from environment / config file
+
+`CrawlConfig` is a standard Pydantic model, so you can use `model_validate()` with a dict from any source:
+
+```python
+import json
+from yoink import CrawlConfig
+
+with open("crawl.json") as f:
+    raw = json.load(f)
+
+config = CrawlConfig.model_validate(raw)
+```
+
+## See also
+
+- [`Crawler`](/docs/api/crawler) — uses this config.
+- [Configuration reference](/docs/reference/configuration) — quick-scan view of every option.

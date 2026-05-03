@@ -1,0 +1,117 @@
+---
+title: Checkpointing
+description: Resumable crawls with append-only checkpoints. Survive Lambda timeouts, OOM kills, and Ctrl-C.
+category: Concepts
+---
+
+Long crawls die. Lambda timeouts hit. SSH connections drop. Servers OOM-kill your process. yoink's checkpointing system makes any crawl resumable with two lines of code.
+
+## What gets checkpointed
+
+A checkpoint file is an append-only log of three kinds of records:
+
+1. **Metadata** — start URL, config snapshot, timestamp. Written once at the start.
+2. **Pages** — one record per crawled page. Streamed as they finish.
+3. **State** — the visited set, the queue, the filtered set. Written periodically and on shutdown.
+
+The format is JSONL with a `type` discriminator on each line:
+
+<CheckpointRecords />
+
+## CLI usage
+
+```bash
+# Run a crawl with checkpointing
+yoink crawl https://example.com --checkpoint ./crawl.jsonl
+
+# It crashed / you Ctrl-C'd. Resume:
+yoink crawl https://example.com --checkpoint ./crawl.jsonl --resume
+```
+
+The same flags work with S3 URIs:
+
+```bash
+yoink crawl https://example.com --checkpoint s3://my-bucket/crawl.jsonl --resume
+```
+
+## Python usage
+
+```python
+from yoink import Crawler, CrawlConfig, CheckpointManager
+
+async def main():
+    config = CrawlConfig(max_pages=10_000)
+
+    # Local file
+    checkpoint = CheckpointManager.from_uri("./crawl.jsonl")
+
+    # ...or S3
+    # checkpoint = CheckpointManager.from_uri("s3://my-bucket/crawl.jsonl")
+
+    crawler = Crawler(config=config, checkpoint_manager=checkpoint)
+
+    # If the file exists, pick up where we left off
+    pages = await crawler.crawl("https://example.com", resume=True)
+    return pages
+```
+
+## Flush interval
+
+Pages are written immediately. State is flushed every N pages (default `10`) and on shutdown:
+
+```python
+checkpoint = CheckpointManager.from_uri(
+    "./crawl.jsonl",
+    flush_interval=50,  # write state every 50 pages
+)
+```
+
+```bash
+yoink crawl https://example.com --checkpoint ./crawl.jsonl --checkpoint-interval 50
+```
+
+Lower values give finer-grained resume but cost more I/O. For S3, every flush is an API call, so you generally want a higher interval (50–100).
+
+## Storage backends
+
+`CheckpointManager.from_uri(...)` picks a backend based on the URI scheme:
+
+| URI                                | Backend            | Implementation       |
+| ---------------------------------- | ------------------ | -------------------- |
+| `./relative/path.jsonl`            | `LocalFileStorage` | Async aiofiles append |
+| `/absolute/path.jsonl`             | `LocalFileStorage` | Async aiofiles append |
+| `s3://bucket/key.jsonl`            | `S3Storage`        | Buffered → put_object |
+
+Want a custom backend (Redis, GCS, Azure)? Implement [`CheckpointStorage`](/docs/api/storage) — five async methods.
+
+## How resume works
+
+When you call `crawler.crawl(url, resume=True)`:
+
+1. The checkpoint file is read line by line.
+2. **Pages** are restored into `crawler.pages`.
+3. **State** restores `scheduler.visited`, `scheduler.queue`, `scheduler.filtered`.
+4. If the start URL doesn't match the checkpoint metadata, you get a warning.
+5. The crawl continues from the queue.
+
+<Callout variant="info" title="Idempotency">
+Restoring visited URLs means yoink will never re-fetch a page that finished before the crash. The crawl picks up exactly where it left off — same depth, same queue order.
+</Callout>
+
+## When to use checkpoints
+
+✅ **Use them**
+- Crawls expected to take more than 10 minutes.
+- Lambda jobs (any execution > 30s).
+- Containers that may be killed (autoscaling, spot instances).
+- Anywhere the start URL might be re-invoked.
+
+❌ **Skip them**
+- Throwaway crawls (one-shot data pulls in dev).
+- Tiny crawls where re-running is cheaper than checkpoint I/O.
+
+## See also
+
+- [Lambda + S3 checkpoints example](/docs/examples/lambda-s3) — a complete resumable Lambda handler.
+- [`CheckpointManager` API](/docs/api/checkpoint).
+- [Storage backends](/docs/api/storage).

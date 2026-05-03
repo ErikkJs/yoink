@@ -1,0 +1,24 @@
+version: 1
+applications:
+  - appRoot: docs
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - nvm install 20
+            - nvm use 20
+            - node -v
+            - npm -v
+            - rm -rf node_modules package-lock.json
+            - npm cache clean --force
+            - npm install --legacy-peer-deps
+            - npm install @rollup/rollup-linux-x64-gnu --save-optional --legacy-peer-deps
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: .amplify-hosting
+        files:
+          - '**/*'
+      cache:
+        paths: []
