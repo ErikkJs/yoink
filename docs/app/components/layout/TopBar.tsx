@@ -72,6 +72,24 @@ export function TopBar({ onMenuClick, className }: TopBarProps) {
           <NavLink to="/docs/cli/crawl">CLI</NavLink>
           <NavLink to="/docs/api/crawler">API</NavLink>
           <NavLink to="/docs/examples/basic">Examples</NavLink>
+          <NavLink to="/llms">
+            <span className="inline-flex items-center gap-1.5">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="size-3.5">
+                <path
+                  strokeWidth={1.6}
+                  strokeLinecap="round"
+                  d="M12 3v6m0 6v6m-9-9h6m6 0h6"
+                />
+                <path
+                  strokeWidth={1.3}
+                  strokeLinecap="round"
+                  d="M6.5 6.5l3 3m5 5l3 3m0-11l-3 3m-5 5l-3 3"
+                  opacity={0.55}
+                />
+              </svg>
+              For LLMs
+            </span>
+          </NavLink>
         </nav>
 
         {/* Right: actions */}

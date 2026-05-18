@@ -6,7 +6,11 @@
     "build": "react-router build",
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
-    "typecheck": "react-router typegen && tsc"
+    "typecheck": "react-router typegen && tsc",
+    "predev": "node scripts/generate-docs-raw.mjs",
+    "prebuild": "node scripts/sync-agents.mjs && node scripts/generate-docs-raw.mjs",
+    "sync-agents": "node scripts/sync-agents.mjs",
+    "sync-docs-raw": "node scripts/generate-docs-raw.mjs"
   },
   "engines": {
     "node": ">=20"

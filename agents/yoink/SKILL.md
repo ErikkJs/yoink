@@ -1,0 +1,108 @@
+---
+name: yoink
+description: Use when the user wants to crawl a website, scrape pages, mirror a documentation site, build an AI training dataset from public web content, extract clean text from a URL, or set up resumable / cloud-backed web crawling. Yoink is a Python async web crawler (CLI + library) with rate limiting, robots.txt compliance, optional JavaScript rendering, and S3-backed checkpoints.
+---
+
+# Yoink — the public data crawler
+
+## What yoink is
+
+Yoink is a fast, async Python web crawler purpose-built for AI-ready data extraction. It speaks two modes:
+
+- **CLI** — `yoink crawl <URL>` with flags. This is what you reach for first. The user almost never needs to write Python to scrape a site.
+- **Library** — `from yoink import Crawler, CrawlConfig` for cases where the user needs to embed crawling in a longer pipeline (custom extraction, ML preprocessing, Lambda handler).
+
+Output formats: JSON, JSONL (recommended for AI/ML), Parquet (recommended for analytics), and plain text.
+
+## When to use yoink vs not
+
+✅ **Reach for yoink when** the user wants:
+- to crawl/mirror a documentation site, blog, knowledge base
+- to build a training/eval dataset from public pages
+- to follow links across a site at controlled depth
+- to extract clean prose text, not raw HTML
+- resumable crawling (Lambda, long jobs, flaky networks)
+
+❌ **Don't use yoink for**:
+- single-page scrapes where the user just wants one URL's content — `curl` or `requests` is simpler
+- structured table/form data behind logins — yoink is for *public* web data
+- real-time monitoring with sub-second polling — use a fetcher loop directly
+- crawling sites that disallow it. Honor `robots.txt`.
+
+## Detect or install
+
+Before suggesting any crawl command, check whether yoink is available:
+
+1. Run `yoink version`. If it prints a version, skip install.
+2. If a Python project exists (`pyproject.toml`, `requirements.txt`, or a `.venv`), add yoink as a dependency:
+   - `pip install "yoink @ git+https://github.com/ErikkJs/yoink.git"`
+   - Or in `pyproject.toml`: `yoink = { git = "https://github.com/ErikkJs/yoink.git" }`
+3. Otherwise install into the active environment: `pip install "git+https://github.com/ErikkJs/yoink.git"`.
+
+**Critical:** Do **NOT** run `pip install yoink` — there is an unrelated package on PyPI with that name. Always use the `git+https` URL above.
+
+**Extras:**
+- `[parquet]` — enables `--format parquet` output (adds pyarrow)
+- `[s3]` — enables `s3://` checkpoint URIs (adds aioboto3)
+- `[browser]` — enables `--render-js` (adds playwright). After installing, also run `playwright install chromium`.
+- `[all]` — all of the above.
+
+Install extras the same way: `pip install "yoink[browser] @ git+https://github.com/ErikkJs/yoink.git"`.
+
+## Translate natural language to CLI flags
+
+When the user describes a crawl, map their words to flags:
+
+| User says | Use |
+|---|---|
+| "crawl deeper" / "follow more links" | `--depth N` (default 1, sane max 4) |
+| "limit to N pages" / "just a few" | `--max-pages N` |
+| "faster" / "parallel" | `--concurrency 20` (default 10) — also warn about politeness |
+| "be nice" / "slow it down" | `--rate-limit 1.0` (req/sec, per-domain) |
+| "only the blog" / "just /docs" | `--include "*/blog/*"` (glob, repeatable) |
+| "skip PDFs / zips / images" | `--skip-extensions pdf,zip,jpg,png` |
+| "skip /admin / private pages" | `--exclude "*/admin/*"` |
+| "follow external links" | `--follow-external` (default: stay on same domain) |
+| "JavaScript site / React / Vue / SPA / empty body" | `--render-js` (needs `[browser]` extra) |
+| "wait for content to load" | `--wait-for networkidle` or `--wait-selector ".content"` |
+| "save HTML too" | `--save-html` |
+| "resume next time" / "don't lose progress" | `--checkpoint <path-or-s3-uri> --resume` |
+| "store in S3" / "Lambda" | `--checkpoint s3://bucket/key.jsonl` |
+| "ignore robots.txt" | `--no-robots` — confirm user has authorization first |
+| "as a Parquet file" / "for pandas" | `--format parquet -o out.parquet` (needs `[parquet]` extra) |
+| "as JSONL" (default, good for streaming) | `--format jsonl -o out.jsonl` |
+| "as a single JSON file" | `--format json -o out.json` |
+
+**Default recipe** for "crawl this site and give me clean text":
+```
+yoink crawl <URL> --depth 2 --max-pages 200 --format jsonl -o crawl.jsonl
+yoink stats crawl.jsonl
+```
+
+After any crawl, run `yoink stats <output>` to summarize pages, depths, status codes, and content stats — useful for the user to verify they got what they wanted.
+
+## Common errors and fixes
+
+- **`ModuleNotFoundError: No module named 'playwright'`** → User needs the browser extra. Run `pip install "yoink[browser] @ git+https://github.com/ErikkJs/yoink.git"` then `playwright install chromium`.
+
+- **`ModuleNotFoundError: No module named 'pyarrow'`** → Need parquet extra. `pip install "yoink[parquet] @ git+https://github.com/ErikkJs/yoink.git"`.
+
+- **`robots.txt disallows <path>`** → Yoink is respecting the site's policy. Don't silently override. Tell the user the site has forbidden this path, ask if they have explicit authorization, and only then suggest `--no-robots` with a warning.
+
+- **Pages come back nearly empty (a few hundred bytes of HTML)** → Likely a SPA that renders client-side. Add `--render-js`. If still empty, try `--wait-for networkidle` or `--wait-selector` for a known element.
+
+- **`NoCredentialsError` with an S3 checkpoint** → User needs AWS credentials. Walk through `aws configure` or environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`). On Lambda/ECS/EC2, IAM roles are picked up automatically.
+
+- **Crawl is hammering a site / getting 429s** → Lower `--rate-limit` (e.g. `0.5` for 1 every 2s) and reduce `--concurrency`. The token bucket is per-domain.
+
+- **Crawl is too slow** → If the user has authorization, raise `--concurrency` (up to ~30 is reasonable) and `--rate-limit` (up to whatever the site tolerates). Still warn about politeness.
+
+## Where to find more
+
+- Project docs: https://yoink.goatsquadstudios.com
+- CLI reference: https://yoink.goatsquadstudios.com/docs/cli/crawl
+- Python API: https://yoink.goatsquadstudios.com/docs/api/crawler
+- Examples: https://yoink.goatsquadstudios.com/docs/examples/basic
+- Source: https://github.com/ErikkJs/yoink
+
+For the full doc set in LLM-friendly markdown, fetch https://yoink.goatsquadstudios.com/llms-full.txt.

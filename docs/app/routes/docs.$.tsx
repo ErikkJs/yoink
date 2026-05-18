@@ -6,6 +6,7 @@ import { findNavItem } from "../data/nav";
 import { mdxComponents } from "../components/docs/MDXComponents";
 import { TableOfContents } from "../components/docs/TableOfContents";
 import { PrevNext } from "../components/docs/PrevNext";
+import { CopyAsMarkdownButton } from "../components/llms/CopyAsMarkdownButton";
 
 export async function loader({ params }: Route.LoaderArgs) {
   const slug = params["*"] ?? "";
@@ -70,7 +71,7 @@ export default function DocsPage({ loaderData }: Route.ComponentProps) {
               {frontmatter.description}
             </p>
           )}
-          <div className="mt-6 flex items-center gap-4 font-mono text-[0.65rem] text-muted-foreground/60">
+          <div className="mt-6 flex items-center gap-4 font-mono text-[0.65rem] text-muted-foreground/60 flex-wrap">
             <span>docs/{currentSlug}.mdx</span>
             <span className="text-border-strong">·</span>
             <a
@@ -81,6 +82,8 @@ export default function DocsPage({ loaderData }: Route.ComponentProps) {
             >
               edit on github ↗
             </a>
+            <span className="text-border-strong">·</span>
+            <CopyAsMarkdownButton slug={currentSlug} />
           </div>
         </header>
 
